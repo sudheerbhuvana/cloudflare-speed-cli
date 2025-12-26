@@ -2,6 +2,14 @@
 name = "cloudflare-speed-cli_"
 version = "0.1.0"
 edition = "2021"
+authors = ["kavehtehrani <codemonkey13x@gmail.com>"]
+description = "CLI tool for Cloudflare speed testing with TUI interface"
+license = "GPL-3.0"
+repository = "https://github.com/kavehtehrani/cloudflare-speed-cli"
+homepage = "https://github.com/kavehtehrani/cloudflare-speed-cli"
+documentation = "https://github.com/kavehtehrani/cloudflare-speed-cli"
+keywords = ["cloudflare", "speed-test", "network", "tui", "cli"]
+categories = ["network", "command-line-utilities"]
 
 [dependencies]
 anyhow = "1.0.95"
@@ -21,6 +29,43 @@ serde_json = "1.0.133"
 time = { version = "0.3.37", features = ["formatting", "macros", "local-offset"] }
 tokio = { version = "1.41.1", features = ["macros", "rt-multi-thread", "signal", "time", "sync", "net"] }
 
+[[bin]]
+name = "cloudflare-speed-cli"
+path = "src/main.rs"
+
 [features]
 default = []
 tui = ["dep:ratatui", "dep:crossterm"]
+
+[package.metadata.deb]
+maintainer = "kavehtehrani <codemonkey13x@gmail.com>"
+copyright = "Copyright (c) 2024, kavehtehrani"
+extended-description = """\
+A CLI tool that displays network speed test results from Cloudflare's speed test service in a TUI interface.
+
+Features:
+- Interactive TUI with real-time charts and statistics
+- Speed tests (download/upload throughput, idle latency, loaded latency)
+- Test history management
+- JSON export
+- Text and JSON output modes for scripting
+"""
+depends = "$auto"
+section = "net"
+priority = "optional"
+
+[package.metadata.rpm]
+license = "GPL-3.0"
+group = "Applications/Internet"
+release = "1"
+summary = "CLI tool for Cloudflare speed testing with TUI interface"
+description = """\
+A CLI tool that displays network speed test results from Cloudflare's speed test service in a TUI interface.
+
+Features:
+- Interactive TUI with real-time charts and statistics
+- Speed tests (download/upload throughput, idle latency, loaded latency)
+- Test history management
+- JSON export
+- Text and JSON output modes for scripting
+"""
