@@ -1106,7 +1106,7 @@ fn draw_dashboard(area: Rect, f: &mut ratatui::Frame, state: &UiState) {
             Span::styled("https://speed.cloudflare.com/", Style::default().fg(Color::Blue)),
         ]),
     ])
-    .block(Block::default().borders(Borders::ALL).title("Status & Controls"));
+    .block(Block::default().borders(Borders::ALL).title("Network Information"));
     f.render_widget(combined, main[3]);
 }
 
