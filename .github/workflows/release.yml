@@ -59,7 +59,7 @@ jobs:
         if: matrix.target == 'aarch64-unknown-linux-gnu'
         run: |
           sudo apt-get update
-          sudo apt-get install -y gcc-aarch64-linux-gnu
+          sudo apt-get install -y gcc-aarch64-linux-gnu binutils-aarch64-linux-gnu
 
       - name: Set up cross-compilation environment (aarch64)
         if: matrix.target == 'aarch64-unknown-linux-gnu'
@@ -77,7 +77,12 @@ jobs:
       - name: Strip binary (Unix)
         if: matrix.os != 'windows-2022'
         run: |
-          strip target/${{ matrix.target }}/release/${{ matrix.bin-name }}
+          # Use cross-compilation strip tool for ARM64, regular strip for others
+          if [ "${{ matrix.target }}" = "aarch64-unknown-linux-gnu" ]; then
+            aarch64-linux-gnu-strip target/${{ matrix.target }}/release/${{ matrix.bin-name }}
+          else
+            strip target/${{ matrix.target }}/release/${{ matrix.bin-name }}
+          fi
 
       - name: Install cargo-deb (Linux only)
         if: matrix.os == 'ubuntu-22.04' && (matrix.target == 'x86_64-unknown-linux-gnu' || matrix.target == 'aarch64-unknown-linux-gnu')
@@ -106,18 +111,28 @@ jobs:
             VERSION=${VERSION#v}
           fi
 
+          # Determine the correct SHA256 command based on OS
+          if command -v sha256sum >/dev/null 2>&1; then
+            SHA256_CMD="sha256sum"
+          elif command -v shasum >/dev/null 2>&1; then
+            SHA256_CMD="shasum -a 256"
+          else
+            echo "Error: No SHA256 command found"
+            exit 1
+          fi
+
           if [ "${{ matrix.archive }}" = "tar.gz" ]; then
             ARCHIVE_NAME=${{ matrix.bin-name }}-${{ matrix.target }}-v${VERSION}.tar.gz
             tar czf ${ARCHIVE_NAME} \
               -C target/${{ matrix.target }}/release \
               ${{ matrix.bin-name }}
-            sha256sum ${ARCHIVE_NAME} > ${ARCHIVE_NAME}.sha256
+            ${SHA256_CMD} ${ARCHIVE_NAME} > ${ARCHIVE_NAME}.sha256
           else
             ARCHIVE_NAME=${{ matrix.bin-name }}-${{ matrix.target }}-v${VERSION}.zip
             cd target/${{ matrix.target }}/release
             zip ../../../../${ARCHIVE_NAME} ${{ matrix.bin-name }}
             cd ../../..
-            sha256sum ${ARCHIVE_NAME} > ${ARCHIVE_NAME}.sha256
+            ${SHA256_CMD} ${ARCHIVE_NAME} > ${ARCHIVE_NAME}.sha256
           fi
 
       - name: Upload to release
