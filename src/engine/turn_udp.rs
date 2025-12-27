@@ -60,20 +60,21 @@ fn parse_host_port(url: &str) -> Result<(String, u16)> {
     // - stun:host:port
     // - stun:host
     // - turn:host:port?transport=udp
-    let rest = url
-        .splitn(2, ':')
-        .nth(1)
-        .context("bad stun/turn url")?;
-    let hostport = rest.split('?').next().unwrap_or(rest);
-    let mut parts = hostport.split(':');
-    let host = parts.next().unwrap_or("").to_string();
-    let port = parts
-        .next()
-        .map(|p| p.parse::<u16>().ok())
-        .flatten()
-        .unwrap_or(3478);
+    const DEFAULT_STUN_PORT: u16 = 3478;
+    
+    let (_, rest) = url.split_once(':').context("bad stun/turn url")?;
+    let (hostport, _) = rest.split_once('?').unwrap_or((rest, ""));
+    let (host, port_str) = hostport.split_once(':').unwrap_or((hostport, ""));
+    
     anyhow::ensure!(!host.is_empty(), "empty host in stun/turn url");
-    Ok((host, port))
+    
+    let port = if port_str.is_empty() {
+        DEFAULT_STUN_PORT
+    } else {
+        port_str.parse::<u16>().context("invalid port in stun/turn url")?
+    };
+    
+    Ok((host.to_string(), port))
 }
 
 pub async fn run_udp_like_loss_probe(turn: &TurnInfo) -> Result<ExperimentalUdpSummary> {

@@ -20,8 +20,6 @@ use ratatui::{
 use std::{io, time::Duration, time::Instant};
 use tokio::sync::mpsc;
 
-mod widgets;
-
 struct UiState {
     tab: usize,
     paused: bool,
@@ -71,6 +69,7 @@ struct UiState {
     asn: Option<String>,
     as_org: Option<String>,
     auto_save: bool,
+    last_exported_path: Option<String>, // Full path of last exported file (for clipboard)
 }
 
 impl Default for UiState {
@@ -117,6 +116,7 @@ impl Default for UiState {
             asn: None,
             as_org: None,
             auto_save: true,
+            last_exported_path: None,
         }
     }
 }
@@ -262,17 +262,72 @@ pub async fn run(args: Cli) -> Result<()> {
                             run_ctx = start_run(&args).await?;
                         }
                         (_, KeyCode::Char('s')) => {
-                            if let Some(r) = state.last_result.as_ref() {
-                                match save_result_json(r) {
-                                    Ok(_) => {
-                                        state.info = "Saved. (r rerun, q quit)".into();
+                            // Only save on dashboard (auto-save location)
+                            if state.tab == 0 {
+                                if let Some(r) = state.last_result.as_ref() {
+                                    match save_result_json(r) {
+                                        Ok(p) => {
+                                            state.info = format!("Saved JSON: {}", p.display());
+                                        }
+                                        Err(e) => {
+                                            state.info = format!("Save failed: {e:#}");
+                                        }
                                     }
-                                    Err(e) => {
-                                        state.info = format!("Save failed: {e:#}");
+                                } else {
+                                    state.info = "No completed run to save yet.".into();
+                                }
+                            }
+                        }
+                        // Export functions only work in history tab
+                        (_, KeyCode::Char('e')) => {
+                            if state.tab == 1 && !state.history.is_empty() {
+                                if state.history_selected < state.history.len() {
+                                    let r = &state.history[state.history_selected];
+                                    match export_result_json(r) {
+                                        Ok(p) => {
+                                            let path_str = p.to_string_lossy().to_string();
+                                            state.last_exported_path = Some(path_str.clone());
+                                            state.info = format!("Exported JSON: {}", p.display());
+                                        }
+                                        Err(e) => {
+                                            state.info = format!("JSON export failed: {e:#}");
+                                        }
                                     }
                                 }
-                            } else {
-                                state.info = "No completed run to save yet.".into();
+                            }
+                        }
+                        (_, KeyCode::Char('c')) => {
+                            if state.tab == 1 && !state.history.is_empty() {
+                                if state.history_selected < state.history.len() {
+                                    let r = &state.history[state.history_selected];
+                                    match export_result_csv(r) {
+                                        Ok(p) => {
+                                            let path_str = p.to_string_lossy().to_string();
+                                            state.last_exported_path = Some(path_str.clone());
+                                            state.info = format!("Exported CSV: {}", p.display());
+                                        }
+                                        Err(e) => {
+                                            state.info = format!("CSV export failed: {e:#}");
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        (_, KeyCode::Char('y')) => {
+                            // Copy last exported path to clipboard (yank)
+                            if state.tab == 1 {
+                                if let Some(ref path) = state.last_exported_path {
+                                    match copy_to_clipboard(path) {
+                                        Ok(_) => {
+                                            state.info = format!("Copied to clipboard: {}", path);
+                                        }
+                                        Err(e) => {
+                                            state.info = format!("Clipboard copy failed: {e:#}");
+                                        }
+                                    }
+                                } else {
+                                    state.info = "No exported file path to copy. Export a file first (e/c)".into();
+                                }
                             }
                         }
                         (_, KeyCode::Char('a')) => {
@@ -843,7 +898,7 @@ fn draw_dashboard(area: Rect, f: &mut ratatui::Frame, state: &UiState) {
         Line::from(vec![
             Span::raw("  "),
             Span::styled("s", Style::default().fg(Color::Magenta)),
-            Span::raw("           Save JSON"),
+            Span::raw("           Save JSON (auto location)"),
         ]),
         Line::from(vec![
             Span::raw("  "),
@@ -1012,7 +1067,7 @@ fn draw_help(area: Rect, f: &mut ratatui::Frame) {
         Line::from(vec![
             Span::raw("  "),
             Span::styled("s", Style::default().fg(Color::Magenta)),
-            Span::raw("           Save last run JSON"),
+            Span::raw("           Save JSON (auto location)"),
         ]),
         Line::from(vec![
             Span::raw("  "),
@@ -1040,6 +1095,21 @@ fn draw_help(area: Rect, f: &mut ratatui::Frame) {
         ]),
         Line::from(vec![
             Span::raw("  "),
+            Span::styled("e", Style::default().fg(Color::Magenta)),
+            Span::raw("           Export selected as JSON"),
+        ]),
+        Line::from(vec![
+            Span::raw("  "),
+            Span::styled("c", Style::default().fg(Color::Magenta)),
+            Span::raw("           Export selected as CSV"),
+        ]),
+        Line::from(vec![
+            Span::raw("  "),
+            Span::styled("y", Style::default().fg(Color::Magenta)),
+            Span::raw("           Copy exported path to clipboard"),
+        ]),
+        Line::from(vec![
+            Span::raw("  "),
             Span::styled("d", Style::default().fg(Color::Magenta)),
             Span::raw("           Delete selected"),
         ]),
@@ -1049,8 +1119,51 @@ fn draw_help(area: Rect, f: &mut ratatui::Frame) {
     f.render_widget(p, area);
 }
 
+/// Save JSON to the default auto-save location.
 fn save_result_json(r: &RunResult) -> Result<std::path::PathBuf> {
     crate::storage::save_run(r)
+}
+
+/// Export JSON to a user-specified file location.
+/// Returns the absolute path of the exported file.
+fn export_result_json(r: &RunResult) -> Result<std::path::PathBuf> {
+    // Generate a default filename based on timestamp
+    let default_name = format!(
+        "cloudflare-speed-{}-{}.json",
+        r.timestamp_utc.replace(':', "-").replace('T', "_"),
+        &r.meas_id[..8.min(r.meas_id.len())]
+    );
+    
+    // Get absolute path from current directory
+    let current_dir = std::env::current_dir().context("get current directory")?;
+    let path = current_dir.join(default_name);
+    crate::storage::export_json(&path, r)?;
+    Ok(path)
+}
+
+/// Export CSV to a user-specified file location.
+/// Returns the absolute path of the exported file.
+fn export_result_csv(r: &RunResult) -> Result<std::path::PathBuf> {
+    // Generate a default filename based on timestamp
+    let default_name = format!(
+        "cloudflare-speed-{}-{}.csv",
+        r.timestamp_utc.replace(':', "-").replace('T', "_"),
+        &r.meas_id[..8.min(r.meas_id.len())]
+    );
+    
+    // Get absolute path from current directory
+    let current_dir = std::env::current_dir().context("get current directory")?;
+    let path = current_dir.join(default_name);
+    crate::storage::export_csv(&path, r)?;
+    Ok(path)
+}
+
+/// Copy text to clipboard.
+fn copy_to_clipboard(text: &str) -> Result<()> {
+    use arboard::Clipboard;
+    let mut clipboard = Clipboard::new().context("initialize clipboard")?;
+    clipboard.set_text(text).context("copy to clipboard")?;
+    Ok(())
 }
 
 fn draw_history(area: Rect, f: &mut ratatui::Frame, state: &UiState) {
@@ -1165,6 +1278,20 @@ fn draw_history(area: Rect, f: &mut ratatui::Frame, state: &UiState) {
         lines.push(Line::from("No history available."));
     }
     
+    // Show exported path if available
+    if let Some(ref path) = state.last_exported_path {
+        lines.push(Line::from(""));
+        lines.push(Line::from(vec![
+            Span::styled("Last exported: ", Style::default().fg(Color::Gray)),
+            Span::styled(path, Style::default().fg(Color::Cyan)),
+        ]));
+        lines.push(Line::from(vec![
+            Span::styled("Press ", Style::default().fg(Color::Gray)),
+            Span::styled("y", Style::default().fg(Color::Magenta)),
+            Span::styled(" to copy path to clipboard", Style::default().fg(Color::Gray)),
+        ]));
+    }
+    
     let p = Paragraph::new(lines).block(Block::default().borders(Borders::ALL).title("History"));
     f.render_widget(p, area);
 }
@@ -1186,7 +1313,7 @@ fn x_bounds(a: &[(f64, f64)], b: &[(f64, f64)]) -> (f64, f64) {
     (xmin, xmax)
 }
 
-fn window<'a>(points: &'a [(f64, f64)], x_max: f64, secs: f64) -> &'a [(f64, f64)] {
+fn window(points: &[(f64, f64)], x_max: f64, secs: f64) -> &[(f64, f64)] {
     let x0 = (x_max - secs).max(0.0);
     let idx = points
         .iter()

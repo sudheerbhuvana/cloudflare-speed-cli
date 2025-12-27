@@ -11,6 +11,9 @@ use std::sync::{
 use std::time::{Duration, Instant};
 use tokio::sync::mpsc;
 
+/// Chunk size for upload stream generation (64 KB)
+const UPLOAD_CHUNK_SIZE: u64 = 64 * 1024;
+
 fn throughput_summary(bytes: u64, duration: Duration) -> ThroughputSummary {
     let secs = duration.as_secs_f64().max(1e-9);
     let bps = (bytes as f64) / secs;
@@ -102,7 +105,7 @@ pub async fn run_download_with_loaded_latency(
             cancel2,
         )
         .await
-        .unwrap_or_else(|_| LatencySummary {
+        .unwrap_or(LatencySummary {
             sent: 0,
             received: 0,
             loss: 1.0,
@@ -192,16 +195,15 @@ pub async fn run_upload_with_loaded_latency(
                 // Generate upload body as a bounded stream of bytes.
                 // We count bytes as we *produce* chunks for reqwest. This is a close approximation
                 // of bytes put on the wire and produces stable realtime Mbps for the UI.
-                let chunk_len: u64 = 64 * 1024;
-                let chunk = Bytes::from(vec![0u8; chunk_len as usize]);
+                let chunk = Bytes::from(vec![0u8; UPLOAD_CHUNK_SIZE as usize]);
 
-                let full = bytes_per_req / chunk_len;
-                let tail = bytes_per_req % chunk_len;
+                let full = bytes_per_req / UPLOAD_CHUNK_SIZE;
+                let tail = bytes_per_req % UPLOAD_CHUNK_SIZE;
 
                 let total2a = total2.clone();
                 let chunk_full = chunk.clone();
                 let s_full = stream::iter(0..full).map(move |_| {
-                    total2a.fetch_add(chunk_len, Ordering::Relaxed);
+                    total2a.fetch_add(UPLOAD_CHUNK_SIZE, Ordering::Relaxed);
                     Ok::<Bytes, std::io::Error>(chunk_full.clone())
                 });
 
@@ -243,7 +245,7 @@ pub async fn run_upload_with_loaded_latency(
             cancel2,
         )
         .await
-        .unwrap_or_else(|_| LatencySummary {
+        .unwrap_or(LatencySummary {
             sent: 0,
             received: 0,
             loss: 1.0,

@@ -90,12 +90,14 @@ pub async fn run(args: Cli) -> Result<()> {
     run_text(args).await
 }
 
+/// Generate a random measurement ID for the speed test.
 fn gen_meas_id() -> String {
     let mut b = [0u8; 8];
     rand::thread_rng().fill_bytes(&mut b);
     u64::from_le_bytes(b).to_string()
 }
 
+/// Build a `RunConfig` from CLI arguments.
 pub fn build_config(args: &Cli) -> RunConfig {
     RunConfig {
         base_url: args.base_url.clone(),
@@ -115,24 +117,21 @@ pub fn build_config(args: &Cli) -> RunConfig {
 
 async fn run_json(args: Cli) -> Result<()> {
     let cfg = build_config(&args);
-    let (_evt_tx, _evt_rx) = mpsc::channel::<TestEvent>(1024);
+    let (evt_tx, _evt_rx) = mpsc::channel::<TestEvent>(1024);
     let (ctrl_tx, ctrl_rx) = mpsc::channel::<EngineControl>(16);
     drop(ctrl_tx);
+    drop(_evt_rx); // Not used in JSON mode
 
     let engine = TestEngine::new(cfg);
     let result = engine
-        .run(_evt_tx, ctrl_rx)
+        .run(evt_tx, ctrl_rx)
         .await
         .context("speed test failed")?;
-    let saved = crate::storage::save_run(&result).ok();
-    if let Some(p) = args.export_json.as_deref() {
-        crate::storage::export_json(p, &result)?;
-    }
-    if let Some(p) = args.export_csv.as_deref() {
-        crate::storage::export_csv(p, &result)?;
-    }
+    
+    handle_exports(&args, &result)?;
+    
     println!("{}", serde_json::to_string_pretty(&result)?);
-    if let Some(p) = saved {
+    if let Ok(p) = crate::storage::save_run(&result) {
         eprintln!("Saved: {}", p.display());
     }
     Ok(())
@@ -163,11 +162,9 @@ async fn run_text(args: Cli) -> Result<()> {
                 }
             }
             TestEvent::LatencySample { phase, ok, rtt_ms, .. } => {
-                if phase == crate::model::Phase::IdleLatency {
-                    if ok {
-                        if let Some(ms) = rtt_ms {
-                            eprintln!("Idle latency: {:.1} ms", ms);
-                        }
+                if phase == crate::model::Phase::IdleLatency && ok {
+                    if let Some(ms) = rtt_ms {
+                        eprintln!("Idle latency: {:.1} ms", ms);
                     }
                 }
             }
@@ -179,17 +176,12 @@ async fn run_text(args: Cli) -> Result<()> {
     }
 
     let result = handle.await??;
-    let saved = crate::storage::save_run(&result).ok();
-    if let Some(p) = args.export_json.as_deref() {
-        crate::storage::export_json(p, &result)?;
-    }
-    if let Some(p) = args.export_csv.as_deref() {
-        crate::storage::export_csv(p, &result)?;
-    }
+    
+    handle_exports(&args, &result)?;
     if let Some(meta) = result.meta.as_ref() {
         let ip = meta.get("clientIp").and_then(|v| v.as_str()).unwrap_or("-");
         let colo = meta.get("colo").and_then(|v| v.as_str()).unwrap_or("-");
-        let asn = meta.get("asn").and_then(|v| v.as_i64()).map(|v| v.to_string()).unwrap_or_else(|| "-".into());
+        let asn = meta.get("asn").and_then(|v| v.as_i64()).map(|v| v.to_string()).unwrap_or_else(|| "-".to_string());
         let org = meta.get("asOrganization").and_then(|v| v.as_str()).unwrap_or("-");
         println!("IP/Colo/ASN: {ip} / {colo} / {asn} ({org})");
     }
@@ -203,8 +195,7 @@ async fn run_text(args: Cli) -> Result<()> {
         result.idle_latency.p50_ms.unwrap_or(f64::NAN),
         result.idle_latency.p90_ms.unwrap_or(f64::NAN),
         result.idle_latency.p99_ms.unwrap_or(f64::NAN),
-        result.idle_latency.loss * 100.0
-        ,
+        result.idle_latency.loss * 100.0,
         result.idle_latency.jitter_ms.unwrap_or(f64::NAN)
     );
     println!(
@@ -223,7 +214,7 @@ async fn run_text(args: Cli) -> Result<()> {
         result.loaded_latency_upload.loss * 100.0,
         result.loaded_latency_upload.jitter_ms.unwrap_or(f64::NAN)
     );
-    if let Some(exp) = result.experimental_udp {
+    if let Some(ref exp) = result.experimental_udp {
         println!(
             "Experimental UDP-like loss probe: loss {:.1}% p50 {} ms (target {:?})",
             exp.latency.loss * 100.0,
@@ -231,8 +222,19 @@ async fn run_text(args: Cli) -> Result<()> {
             exp.target
         );
     }
-    if let Some(p) = saved {
+    if let Ok(p) = crate::storage::save_run(&result) {
         eprintln!("Saved: {}", p.display());
+    }
+    Ok(())
+}
+
+/// Handle export operations (JSON and CSV) for both text and JSON modes.
+fn handle_exports(args: &Cli, result: &crate::model::RunResult) -> Result<()> {
+    if let Some(p) = args.export_json.as_deref() {
+        crate::storage::export_json(p, result)?;
+    }
+    if let Some(p) = args.export_csv.as_deref() {
+        crate::storage::export_csv(p, result)?;
     }
     Ok(())
 }

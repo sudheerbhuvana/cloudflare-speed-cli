@@ -2,16 +2,19 @@ use crate::model::RunResult;
 use anyhow::{Context, Result};
 use std::path::{Path, PathBuf};
 
+/// Get the base directory for storing application data.
 fn base_dir() -> PathBuf {
     dirs::data_local_dir()
         .unwrap_or_else(|| PathBuf::from("."))
         .join("cloudflare-speed-cli")
 }
 
+/// Get the directory for storing test run results.
 fn runs_dir() -> PathBuf {
     base_dir().join("runs")
 }
 
+/// Ensure the necessary directories exist for storing data.
 pub fn ensure_dirs() -> Result<()> {
     std::fs::create_dir_all(runs_dir()).context("create runs dir")?;
     Ok(())
@@ -29,8 +32,7 @@ pub fn get_run_path(result: &RunResult) -> Result<PathBuf> {
     let ts = &result.timestamp_utc;
     let safe_ts = ts
         .replace(':', "-")
-        .replace('T', "_")
-        .replace('Z', "Z");
+        .replace('T', "_");
     Ok(runs_dir().join(format!("run-{safe_ts}-{}.json", result.meas_id)))
 }
 
@@ -76,6 +78,7 @@ pub fn export_csv(path: &Path, result: &RunResult) -> Result<()> {
     Ok(())
 }
 
+/// Escape a string for CSV format (handles commas, quotes, and newlines).
 fn csv_escape(s: &str) -> String {
     if s.contains(',') || s.contains('"') || s.contains('\n') {
         format!("\"{}\"", s.replace('"', "\"\""))

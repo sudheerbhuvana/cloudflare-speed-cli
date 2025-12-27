@@ -77,5 +77,3 @@ pub fn latency_summary_from_samples(
         jitter_ms,
     }
 }
-
-
