@@ -5,6 +5,8 @@
 
 A CLI tool that displays network speed test results from Cloudflare's speed test service in a TUI interface.
 
+![screenshot](./images/screenshot.png)
+
 ## Features
 
 - **Interactive TUI**: Real-time charts and statistics

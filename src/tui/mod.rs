@@ -856,41 +856,65 @@ fn draw_dashboard(area: Rect, f: &mut ratatui::Frame, state: &UiState) {
         .constraints([Constraint::Percentage(50), Constraint::Percentage(50)].as_ref())
         .split(main[1]);
 
-    let (_x_min, x_max) = x_bounds(&state.dl_points, &state.ul_points);
-    
-    // Download throughput chart (left)
-    let y_dl_max = max_y(&state.dl_points).max(10.0);
-    let y_dl_max = (y_dl_max * 1.10).min(10_000.0);
-    let dl_ds = Dataset::default()
-        .graph_type(GraphType::Line)
-        .marker(symbols::Marker::Braille)
-        .style(Style::default().fg(Color::Green))
-        .data(window(&state.dl_points, x_max, 60.0));
-    let dl_chart = Chart::new(vec![dl_ds])
-        .block(Block::default().borders(Borders::ALL).title("Download Throughput (last 60s)"))
-        .x_axis(
-            Axis::default()
-                .bounds([(x_max - 60.0).max(0.0), x_max.max(1.0)]),
-        )
-        .y_axis(Axis::default().title("Mbps").bounds([0.0, y_dl_max]));
-    f.render_widget(dl_chart, thr_row[0]);
+    // Download throughput chart (left) - only show when download phase has data
+    if state.dl_phase_start.is_some() && !state.dl_points.is_empty() {
+        // Calculate x bounds only for download points
+        let dl_x_max = state.dl_points.last().map(|(x, _)| *x).unwrap_or(0.0);
+        let dl_x_min = state.dl_points.first().map(|(x, _)| *x).unwrap_or(0.0);
+        
+        let y_dl_max = max_y(&state.dl_points).max(10.0);
+        let y_dl_max = (y_dl_max * 1.10).min(10_000.0);
+        
+        // Use all download points (they're already filtered to download phase)
+        let dl_ds = Dataset::default()
+            .graph_type(GraphType::Line)
+            .marker(symbols::Marker::Braille)
+            .style(Style::default().fg(Color::Green))
+            .data(&state.dl_points);
+        let dl_chart = Chart::new(vec![dl_ds])
+            .block(Block::default().borders(Borders::ALL).title("Download Throughput"))
+            .x_axis(
+                Axis::default()
+                    .bounds([dl_x_min, dl_x_max.max(1.0)]),
+            )
+            .y_axis(Axis::default().title("Mbps").bounds([0.0, y_dl_max]));
+        f.render_widget(dl_chart, thr_row[0]);
+    } else {
+        // Show empty placeholder when download hasn't started
+        let empty_chart = Paragraph::new("Waiting for download phase...")
+            .block(Block::default().borders(Borders::ALL).title("Download Throughput"));
+        f.render_widget(empty_chart, thr_row[0]);
+    }
 
-    // Upload throughput chart (right)
-    let y_ul_max = max_y(&state.ul_points).max(10.0);
-    let y_ul_max = (y_ul_max * 1.10).min(10_000.0);
-    let ul_ds = Dataset::default()
-        .graph_type(GraphType::Line)
-        .marker(symbols::Marker::Braille)
-        .style(Style::default().fg(Color::Cyan))
-        .data(window(&state.ul_points, x_max, 60.0));
-    let ul_chart = Chart::new(vec![ul_ds])
-        .block(Block::default().borders(Borders::ALL).title("Upload Throughput (last 60s)"))
-        .x_axis(
-            Axis::default()
-                .bounds([(x_max - 60.0).max(0.0), x_max.max(1.0)]),
-        )
-        .y_axis(Axis::default().title("Mbps").bounds([0.0, y_ul_max]));
-    f.render_widget(ul_chart, thr_row[1]);
+    // Upload throughput chart (right) - only show when upload phase has data
+    if state.ul_phase_start.is_some() && !state.ul_points.is_empty() {
+        // Calculate x bounds only for upload points
+        let ul_x_max = state.ul_points.last().map(|(x, _)| *x).unwrap_or(0.0);
+        let ul_x_min = state.ul_points.first().map(|(x, _)| *x).unwrap_or(0.0);
+        
+        let y_ul_max = max_y(&state.ul_points).max(10.0);
+        let y_ul_max = (y_ul_max * 1.10).min(10_000.0);
+        
+        // Use all upload points (they're already filtered to upload phase)
+        let ul_ds = Dataset::default()
+            .graph_type(GraphType::Line)
+            .marker(symbols::Marker::Braille)
+            .style(Style::default().fg(Color::Cyan))
+            .data(&state.ul_points);
+        let ul_chart = Chart::new(vec![ul_ds])
+            .block(Block::default().borders(Borders::ALL).title("Upload Throughput"))
+            .x_axis(
+                Axis::default()
+                    .bounds([ul_x_min, ul_x_max.max(1.0)]),
+            )
+            .y_axis(Axis::default().title("Mbps").bounds([0.0, y_ul_max]));
+        f.render_widget(ul_chart, thr_row[1]);
+    } else {
+        // Show empty placeholder when upload hasn't started
+        let empty_chart = Paragraph::new("Waiting for upload phase...")
+            .block(Block::default().borders(Borders::ALL).title("Upload Throughput"));
+        f.render_widget(empty_chart, thr_row[1]);
+    }
 
     // Latency stats (numeric, not charts): Idle, Loaded DL, Loaded UL
     let lat_row = Layout::default()
@@ -1640,24 +1664,4 @@ fn max_y(points: &[(f64, f64)]) -> f64 {
         .map(|(_, y)| *y)
         .fold(0.0, |a, b| a.max(b))
 }
-
-fn x_bounds(a: &[(f64, f64)], b: &[(f64, f64)]) -> (f64, f64) {
-    let xmax = a
-        .last()
-        .map(|(x, _)| *x)
-        .unwrap_or(0.0)
-        .max(b.last().map(|(x, _)| *x).unwrap_or(0.0));
-    let xmin = 0.0;
-    (xmin, xmax)
-}
-
-fn window(points: &[(f64, f64)], x_max: f64, secs: f64) -> &[(f64, f64)] {
-    let x0 = (x_max - secs).max(0.0);
-    let idx = points
-        .iter()
-        .position(|(x, _)| *x >= x0)
-        .unwrap_or(points.len());
-    &points[idx..]
-}
-
 
