@@ -9,61 +9,35 @@ A CLI tool that displays network speed test results from Cloudflare's speed test
 
 ## Features
 
-- **Interactive TUI**: Real-time charts and statistics
 - **Speed Tests**: Measures download/upload throughput, idle latency, and loaded latency
+- **Interactive TUI**: Real-time charts and statistics
 - **History**: View and manage past test results
 - **Export**: Save results as JSON
 - **Text/JSON Modes**: Headless operation for scripting
 
 ## Installation
 
-### Linux (All Distributions)
+### From Source 
 
-Download the static binary for your system from the [latest release](https://github.com/kavehtehrani/cloudflare-speed-cli/releases).
-
-Or for the lazy:
-
-```bash
-# For x86_64 systems
-wget https://github.com/kavehtehrani/cloudflare-speed-cli/releases/latest/download/cloudflare-speed-cli_-x86_64-unknown-linux-musl.tar.xz
-tar -xJf cloudflare-speed-cli_-x86_64-unknown-linux-musl.tar.xz
-sudo mv cloudflare-speed-cli /usr/local/bin/
-```
-
-```bash
-# For ARM64 systems
-wget https://github.com/kavehtehrani/cloudflare-speed-cli/releases/latest/download/cloudflare-speed-cli_-aarch64-unknown-linux-musl.tar.xz
-tar -xJf cloudflare-speed-cli_-aarch64-unknown-linux-musl.tar.xz
-sudo mv cloudflare-speed-cli /usr/local/bin/
-```
-
-### macOS
-
-```bash
-# For Intel Macs
-wget https://github.com/kavehtehrani/cloudflare-speed-cli/releases/latest/download/cloudflare-speed-cli_-x86_64-apple-darwin.tar.xz
-tar -xJf cloudflare-speed-cli_-x86_64-apple-darwin.tar.xz
-sudo mv cloudflare-speed-cli /usr/local/bin/
-```
-
-```bash
-# For Apple Silicon (M1/M2/M3)
-wget https://github.com/kavehtehrani/cloudflare-speed-cli/releases/latest/download/cloudflare-speed-cli_-aarch64-apple-darwin.tar.xz
-tar -xJf cloudflare-speed-cli_-aarch64-apple-darwin.tar.xz
-sudo mv cloudflare-speed-cli /usr/local/bin/
-```
-
-### Windows
-
-1. Download `cloudflare-speed-cli_-x86_64-pc-windows-msvc.zip` from [GitHub Releases](https://github.com/kavehtehrani/cloudflare-speed-cli/releases/latest)
-2. Extract the ZIP file
-3. Move `cloudflare-speed-cli.exe` to a directory in your PATH (e.g., `C:\Windows\System32` or add a custom directory to PATH)
-
-### From Source (Cargo)
+My preferred way if you have cargo installed
 
 ```bash
 cargo install --git https://github.com/kavehtehrani/cloudflare-speed-cli --features tui
 ```
+
+### Installation Script 
+
+For the lazy:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/kavehtehrani/cloudflare-speed-cli/main/install.sh | sh
+```
+
+
+### Binaries
+
+Download the static binary for your system from the 
+[latest release](https://github.com/kavehtehrani/cloudflare-speed-cli/releases).
 
 ## Usage
 
