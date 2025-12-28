@@ -54,7 +54,9 @@ if ! curl -fsSLO "${SHA256_URL}"; then
 fi
 
 echo "Verifying checksum..." >&2
-sha256sum -c "${FILE}.sha256" || { echo "Error: Checksum verification failed" >&2; exit 1; }
+# Normalize checksum file (remove CRLF) and ignore empty/whitespace-only lines
+sed 's/\r$//' "${FILE}.sha256" | grep -E -v '^[[:space:]]*$' | sha256sum -c - \
+  || { echo "Error: Checksum verification failed" >&2; exit 1; }
 
 echo "Extracting archive..." >&2
 tar -xJf "$FILE"
