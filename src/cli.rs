@@ -80,6 +80,10 @@ pub struct Cli {
     /// Bind to a specific source IP address (e.g., 192.168.10.0)
     #[arg(long)]
     pub source: Option<String>,
+
+    /// Path to a custom TLS certificate file (PEM or DER format)
+    #[arg(long)]
+    pub certificate: Option<std::path::PathBuf>,
 }
 
 pub async fn run(args: Cli) -> Result<()> {
@@ -126,6 +130,7 @@ pub fn build_config(args: &Cli) -> RunConfig {
         experimental: args.experimental,
         interface: args.interface.clone(),
         source_ip: args.source.clone(),
+        certificate_path: args.certificate.clone(),
     }
 }
 

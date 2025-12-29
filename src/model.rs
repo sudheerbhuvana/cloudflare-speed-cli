@@ -20,6 +20,7 @@ pub struct RunConfig {
     pub experimental: bool,
     pub interface: Option<String>,
     pub source_ip: Option<String>,
+    pub certificate_path: Option<std::path::PathBuf>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

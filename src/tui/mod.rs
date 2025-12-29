@@ -80,6 +80,7 @@ struct UiState {
     is_wireless: Option<bool>,
     interface_mac: Option<String>,
     link_speed_mbps: Option<u64>,
+    certificate_filename: Option<String>,
 }
 
 impl Default for UiState {
@@ -135,6 +136,7 @@ impl Default for UiState {
             is_wireless: None,
             interface_mac: None,
             link_speed_mbps: None,
+            certificate_filename: None,
         }
     }
 }
@@ -373,6 +375,10 @@ pub async fn run(args: Cli) -> Result<()> {
     state.is_wireless = is_wireless;
     state.interface_mac = interface_mac;
     state.link_speed_mbps = link_speed_mbps;
+    state.certificate_filename = args.certificate.as_ref()
+        .and_then(|p| p.file_name())
+        .and_then(|n| n.to_str())
+        .map(|s| s.to_string());
 
     let mut events = EventStream::new();
     let mut tick = tokio::time::interval(Duration::from_millis(100));
@@ -907,7 +913,6 @@ fn draw_dashboard(area: Rect, f: &mut ratatui::Frame, state: &UiState) {
         .direction(Direction::Vertical)
         .constraints(
             [
-                Constraint::Length(3),  // Speed boxes row (side-by-side)
                 Constraint::Length(12), // Throughput charts row (side-by-side)
                 Constraint::Length(8),  // Latency stats row (idle + loaded DL + loaded UL)
                 Constraint::Min(0),     // Status + shortcuts
@@ -916,43 +921,11 @@ fn draw_dashboard(area: Rect, f: &mut ratatui::Frame, state: &UiState) {
         )
         .split(area);
 
-    // Speed boxes at the top: DL left, UL right
-    let speed_row = Layout::default()
-        .direction(Direction::Horizontal)
-        .constraints([Constraint::Percentage(50), Constraint::Percentage(50)].as_ref())
-        .split(main[0]);
-
-    // Download speed box
-    let dl_info = Paragraph::new(Line::from(vec![Span::styled(
-        format!("inst {:.1} / avg {:.1}", state.dl_mbps, state.dl_avg_mbps),
-        Style::default().fg(Color::Green),
-    )]))
-    .block(
-        Block::default()
-            .borders(Borders::ALL)
-            .border_style(Style::default().fg(Color::Green))
-            .title("Download Speed"),
-    );
-    f.render_widget(dl_info, speed_row[0]);
-
-    // Upload speed box
-    let ul_info = Paragraph::new(Line::from(vec![Span::styled(
-        format!("inst {:.1} / avg {:.1}", state.ul_mbps, state.ul_avg_mbps),
-        Style::default().fg(Color::Cyan),
-    )]))
-    .block(
-        Block::default()
-            .borders(Borders::ALL)
-            .border_style(Style::default().fg(Color::Cyan))
-            .title("Upload Speed"),
-    );
-    f.render_widget(ul_info, speed_row[1]);
-
     // Throughput charts side-by-side: DL left, UL right
     let thr_row = Layout::default()
         .direction(Direction::Horizontal)
         .constraints([Constraint::Percentage(50), Constraint::Percentage(50)].as_ref())
-        .split(main[1]);
+        .split(main[0]);
 
     // Download throughput chart (left) - only show when download phase has data
     if state.dl_phase_start.is_some() && !state.dl_points.is_empty() {
@@ -973,7 +946,19 @@ fn draw_dashboard(area: Rect, f: &mut ratatui::Frame, state: &UiState) {
             .block(
                 Block::default()
                     .borders(Borders::ALL)
-                    .title("Download Throughput"),
+                    .title(Line::from(vec![
+                        Span::raw("Download Throughput (inst "),
+                        Span::styled(
+                            format!("{:.1}", state.dl_mbps),
+                            Style::default().fg(Color::Green),
+                        ),
+                        Span::raw(" / avg "),
+                        Span::styled(
+                            format!("{:.1}", state.dl_avg_mbps),
+                            Style::default().fg(Color::Green),
+                        ),
+                        Span::raw(" Mbps)"),
+                    ])),
             )
             .x_axis(Axis::default().bounds([dl_x_min, dl_x_max.max(1.0)]))
             .y_axis(Axis::default().title("Mbps").bounds([0.0, y_dl_max]));
@@ -983,7 +968,19 @@ fn draw_dashboard(area: Rect, f: &mut ratatui::Frame, state: &UiState) {
         let empty_chart = Paragraph::new("Waiting for download phase...").block(
             Block::default()
                 .borders(Borders::ALL)
-                .title("Download Throughput"),
+                .title(Line::from(vec![
+                    Span::raw("Download Throughput (inst "),
+                    Span::styled(
+                        format!("{:.1}", state.dl_mbps),
+                        Style::default().fg(Color::Green),
+                    ),
+                    Span::raw(" / avg "),
+                    Span::styled(
+                        format!("{:.1}", state.dl_avg_mbps),
+                        Style::default().fg(Color::Green),
+                    ),
+                    Span::raw(" Mbps)"),
+                ])),
         );
         f.render_widget(empty_chart, thr_row[0]);
     }
@@ -1007,7 +1004,19 @@ fn draw_dashboard(area: Rect, f: &mut ratatui::Frame, state: &UiState) {
             .block(
                 Block::default()
                     .borders(Borders::ALL)
-                    .title("Upload Throughput"),
+                    .title(Line::from(vec![
+                        Span::raw("Upload Throughput (inst "),
+                        Span::styled(
+                            format!("{:.1}", state.ul_mbps),
+                            Style::default().fg(Color::Cyan),
+                        ),
+                        Span::raw(" / avg "),
+                        Span::styled(
+                            format!("{:.1}", state.ul_avg_mbps),
+                            Style::default().fg(Color::Cyan),
+                        ),
+                        Span::raw(" Mbps)"),
+                    ])),
             )
             .x_axis(Axis::default().bounds([ul_x_min, ul_x_max.max(1.0)]))
             .y_axis(Axis::default().title("Mbps").bounds([0.0, y_ul_max]));
@@ -1017,7 +1026,19 @@ fn draw_dashboard(area: Rect, f: &mut ratatui::Frame, state: &UiState) {
         let empty_chart = Paragraph::new("Waiting for upload phase...").block(
             Block::default()
                 .borders(Borders::ALL)
-                .title("Upload Throughput"),
+                .title(Line::from(vec![
+                    Span::raw("Upload Throughput (inst "),
+                    Span::styled(
+                        format!("{:.1}", state.ul_mbps),
+                        Style::default().fg(Color::Cyan),
+                    ),
+                    Span::raw(" / avg "),
+                    Span::styled(
+                        format!("{:.1}", state.ul_avg_mbps),
+                        Style::default().fg(Color::Cyan),
+                    ),
+                    Span::raw(" Mbps)"),
+                ])),
         );
         f.render_widget(empty_chart, thr_row[1]);
     }
@@ -1033,7 +1054,7 @@ fn draw_dashboard(area: Rect, f: &mut ratatui::Frame, state: &UiState) {
             ]
             .as_ref(),
         )
-        .split(main[2]);
+        .split(main[1]);
 
     // Helper to format latency stats
     let format_latency = |lat: &crate::model::LatencySummary| -> Vec<Line> {
@@ -1141,7 +1162,7 @@ fn draw_dashboard(area: Rect, f: &mut ratatui::Frame, state: &UiState) {
         .map(|ip| if ip.contains(':') { "IPv6" } else { "IPv4" })
         .unwrap_or("-");
 
-    let combined = Paragraph::new(vec![
+    let mut lines = vec![
         Line::from(vec![
             Span::styled("Phase: ", Style::default().fg(Color::Gray)),
             Span::raw(format!("{:?}", state.phase)),
@@ -1187,6 +1208,17 @@ fn draw_dashboard(area: Rect, f: &mut ratatui::Frame, state: &UiState) {
                     .unwrap_or_else(|| "-".to_string()),
             ),
         ]),
+    ];
+
+    // Only show Certificate line if a certificate is set
+    if let Some(ref cert_filename) = state.certificate_filename {
+        lines.push(Line::from(vec![
+            Span::styled("Certificate: ", Style::default().fg(Color::Gray)),
+            Span::raw(cert_filename),
+        ]));
+    }
+
+    lines.extend(vec![
         Line::from(vec![
             Span::styled("Server location: ", Style::default().fg(Color::Gray)),
             Span::raw(state.server.as_deref().unwrap_or("-")),
@@ -1276,111 +1308,130 @@ fn draw_dashboard(area: Rect, f: &mut ratatui::Frame, state: &UiState) {
                 Style::default().fg(Color::Blue),
             ),
         ]),
-    ])
-    .block(
-        Block::default()
-            .borders(Borders::ALL)
-            .title("Network Information"),
-    );
-    f.render_widget(combined, main[3]);
+    ]);
+
+    let combined = Paragraph::new(lines)
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .title("Network Information"),
+        );
+    f.render_widget(combined, main[2]);
 }
 
 fn draw_dashboard_compact(area: Rect, f: &mut ratatui::Frame, state: &UiState) {
+    // Split into top (sparklines) and bottom (text boxes)
     let content = Layout::default()
         .direction(Direction::Vertical)
         .constraints([Constraint::Min(0), Constraint::Length(8)].as_ref())
         .split(area);
 
-    let cols = Layout::default()
+    // Top row: Download and Upload sparklines side by side
+    let top_row = Layout::default()
         .direction(Direction::Horizontal)
         .constraints([Constraint::Percentage(50), Constraint::Percentage(50)].as_ref())
         .split(content[0]);
 
-    let left = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints(
-            [
-                Constraint::Min(0),
-                Constraint::Length(3),
-                Constraint::Min(0),
-            ]
-            .as_ref(),
-        )
-        .split(cols[0]);
-
-    let right = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints(
-            [
-                Constraint::Min(0),
-                Constraint::Length(3),
-                Constraint::Min(0),
-            ]
-            .as_ref(),
-        )
-        .split(cols[1]);
-
-    // Download sparkline with inst/avg box below
+    // Download sparkline with speed in title (numbers colored green)
     f.render_widget(
         Sparkline::default()
             .block(
                 Block::default()
                     .borders(Borders::ALL)
-                    .title("DL sparkline (Mbps)"),
+                    .title(Line::from(vec![
+                        Span::raw("Download (inst "),
+                        Span::styled(
+                            format!("{:.1}", state.dl_mbps),
+                            Style::default().fg(Color::Green),
+                        ),
+                        Span::raw(" / avg "),
+                        Span::styled(
+                            format!("{:.1}", state.dl_avg_mbps),
+                            Style::default().fg(Color::Green),
+                        ),
+                        Span::raw(" Mbps)"),
+                    ])),
             )
             .data(&state.dl_series)
             .style(Style::default().fg(Color::Green)),
-        left[0],
+        top_row[0],
     );
-    let dl_info = Paragraph::new(Line::from(vec![Span::styled(
-        format!("inst {:.1} / avg {:.1}", state.dl_mbps, state.dl_avg_mbps),
-        Style::default().fg(Color::Green),
-    )]))
-    .block(
-        Block::default()
-            .borders(Borders::ALL)
-            .border_style(Style::default().fg(Color::Green))
-            .title("Download Speed"),
-    );
-    f.render_widget(dl_info, left[1]);
 
-    // Upload sparkline with inst/avg box below
+    // Upload sparkline with speed in title (numbers colored cyan)
     f.render_widget(
         Sparkline::default()
             .block(
                 Block::default()
                     .borders(Borders::ALL)
-                    .title("UL sparkline (Mbps)"),
+                    .title(Line::from(vec![
+                        Span::raw("Upload (inst "),
+                        Span::styled(
+                            format!("{:.1}", state.ul_mbps),
+                            Style::default().fg(Color::Cyan),
+                        ),
+                        Span::raw(" / avg "),
+                        Span::styled(
+                            format!("{:.1}", state.ul_avg_mbps),
+                            Style::default().fg(Color::Cyan),
+                        ),
+                        Span::raw(" Mbps)"),
+                    ])),
             )
             .data(&state.ul_series)
             .style(Style::default().fg(Color::Cyan)),
-        right[0],
-    );
-    let ul_info = Paragraph::new(Line::from(vec![Span::styled(
-        format!("inst {:.1} / avg {:.1}", state.ul_mbps, state.ul_avg_mbps),
-        Style::default().fg(Color::Cyan),
-    )]))
-    .block(
-        Block::default()
-            .borders(Borders::ALL)
-            .border_style(Style::default().fg(Color::Cyan))
-            .title("Upload Speed"),
-    );
-    f.render_widget(ul_info, right[1]);
-
-    f.render_widget(
-        Sparkline::default()
-            .block(
-                Block::default()
-                    .borders(Borders::ALL)
-                    .title("Idle latency (ms)"),
-            )
-            .data(&state.idle_lat_series)
-            .style(Style::default().fg(Color::Magenta)),
-        right[2],
+        top_row[1],
     );
 
-    let meta = Paragraph::new(vec![
+    // Bottom row: Idle latency text box and Status box side by side
+    let bottom_row = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([Constraint::Percentage(50), Constraint::Percentage(50)].as_ref())
+        .split(content[1]);
+
+    // Idle latency stats text box
+    let idle_lat = if state.idle_latency_samples.is_empty() && state.idle_latency_sent == 0 {
+        None
+    } else {
+        Some(UiState::compute_live_latency_stats(
+            &state.idle_latency_samples,
+            state.idle_latency_sent,
+            state.idle_latency_received,
+        ))
+    };
+    let format_latency = |lat: &crate::model::LatencySummary| -> Vec<Line> {
+        vec![
+            Line::from(vec![
+                Span::styled("p50: ", Style::default().fg(Color::Gray)),
+                Span::raw(format!("{:.1} ms", lat.p50_ms.unwrap_or(f64::NAN))),
+            ]),
+            Line::from(vec![
+                Span::styled("p90: ", Style::default().fg(Color::Gray)),
+                Span::raw(format!("{:.1} ms", lat.p90_ms.unwrap_or(f64::NAN))),
+            ]),
+            Line::from(vec![
+                Span::styled("p99: ", Style::default().fg(Color::Gray)),
+                Span::raw(format!("{:.1} ms", lat.p99_ms.unwrap_or(f64::NAN))),
+            ]),
+            Line::from(vec![
+                Span::styled("Jitter: ", Style::default().fg(Color::Gray)),
+                Span::raw(format!("{:.1} ms", lat.jitter_ms.unwrap_or(f64::NAN))),
+            ]),
+            Line::from(vec![
+                Span::styled("Loss: ", Style::default().fg(Color::Gray)),
+                Span::raw(format!("{:.2}%", lat.loss * 100.0)),
+            ]),
+        ]
+    };
+    let idle_stats = Paragraph::new(
+        idle_lat
+            .as_ref()
+            .map(format_latency)
+            .unwrap_or_else(|| vec![Line::from("Waiting for data...")]),
+    )
+    .block(Block::default().borders(Borders::ALL).title("Idle Latency"));
+    f.render_widget(idle_stats, bottom_row[0]);
+
+    let mut meta_lines = vec![
         Line::from(vec![
             Span::styled("Phase: ", Style::default().fg(Color::Gray)),
             Span::raw(format!("{:?}", state.phase)),
@@ -1409,6 +1460,17 @@ fn draw_dashboard_compact(area: Rect, f: &mut ratatui::Frame, state: &UiState) {
                     .unwrap_or("-"),
             ),
         ]),
+    ];
+
+    // Only show Certificate line if a certificate is set
+    if let Some(ref cert_filename) = state.certificate_filename {
+        meta_lines.push(Line::from(vec![
+            Span::styled("Certificate: ", Style::default().fg(Color::Gray)),
+            Span::raw(cert_filename),
+        ]));
+    }
+
+    meta_lines.extend(vec![
         Line::from(vec![
             Span::styled("IP/Colo: ", Style::default().fg(Color::Gray)),
             Span::raw(format!(
@@ -1427,9 +1489,11 @@ fn draw_dashboard_compact(area: Rect, f: &mut ratatui::Frame, state: &UiState) {
         ]),
         Line::from(""),
         Line::from("Keys: q quit | r rerun | p pause | s save json | tab switch | ? help"),
-    ])
-    .block(Block::default().borders(Borders::ALL).title("Status"));
-    f.render_widget(meta, content[1]);
+    ]);
+
+    let meta = Paragraph::new(meta_lines)
+        .block(Block::default().borders(Borders::ALL).title("Network Information"));
+    f.render_widget(meta, bottom_row[1]);
 }
 
 fn draw_help(area: Rect, f: &mut ratatui::Frame) {
