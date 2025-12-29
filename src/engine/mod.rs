@@ -1,5 +1,6 @@
 mod cloudflare;
 mod latency;
+mod network_bind;
 mod throughput;
 mod turn_udp;
 
@@ -145,7 +146,7 @@ impl TestEngine {
         let mut experimental_udp = None;
         if self.cfg.experimental {
             if let Ok(info) = cloudflare::fetch_turn(&client).await {
-                experimental_udp = turn_udp::run_udp_like_loss_probe(&info).await.ok();
+                experimental_udp = turn_udp::run_udp_like_loss_probe(&info, &self.cfg).await.ok();
                 turn = Some(info);
             }
         }

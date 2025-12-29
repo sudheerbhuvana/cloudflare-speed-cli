@@ -16,12 +16,49 @@ pub struct CloudflareClient {
 impl CloudflareClient {
     pub fn new(cfg: &RunConfig) -> Result<Self> {
         let base_url = Url::parse(&cfg.base_url).context("invalid base_url")?;
-        let http = reqwest::Client::builder()
+        
+        let mut builder = reqwest::Client::builder()
             .user_agent(cfg.user_agent.clone())
             .timeout(Duration::from_secs(30))
-            .tcp_keepalive(Duration::from_secs(15))
+            .tcp_keepalive(Duration::from_secs(15));
+        
+        // Configure binding to interface or source IP if specified
+        if let Some(ref iface) = cfg.interface {
+            use crate::engine::network_bind;
+            match network_bind::get_interface_ip(iface) {
+                Ok(ip) => {
+                    builder = builder.local_address(ip);
+                    eprintln!("Binding HTTP connections to interface {} (IP: {})", iface, ip);
+                }
+                Err(e) => {
+                    return Err(anyhow::anyhow!(
+                        "Failed to get IP address for interface {}: {}",
+                        iface,
+                        e
+                    ));
+                }
+            }
+        } else if let Some(ref source_ip) = cfg.source_ip {
+            // Bind to specific source IP address
+            match source_ip.parse::<std::net::IpAddr>() {
+                Ok(ip) => {
+                    builder = builder.local_address(ip);
+                    eprintln!("Binding HTTP connections to source IP: {}", ip);
+                }
+                Err(e) => {
+                    return Err(anyhow::anyhow!(
+                        "Invalid source IP address format '{}': {}",
+                        source_ip,
+                        e
+                    ));
+                }
+            }
+        }
+        
+        let http = builder
             .build()
             .context("failed to build http client")?;
+        
         Ok(Self {
             base_url,
             meas_id: cfg.meas_id.clone(),
@@ -316,3 +353,4 @@ pub fn map_colo_to_server(locations: &serde_json::Value, colo: &str) -> Option<S
         Some(colo.to_string())
     }
 }
+

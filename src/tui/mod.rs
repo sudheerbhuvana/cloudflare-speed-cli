@@ -336,8 +336,23 @@ pub async fn run(args: Cli) -> Result<()> {
     state.history = crate::storage::load_recent(20).unwrap_or_default();
 
     // Gather network interface information
-    let (interface_name, network_name, is_wireless, interface_mac, link_speed_mbps) =
-        gather_network_info();
+    // If interface is specified via CLI, use that; otherwise auto-detect
+    let (interface_name, network_name, is_wireless, interface_mac, link_speed_mbps) = 
+        if let Some(ref iface) = args.interface {
+            // Use the specified interface
+            let is_wireless = check_if_wireless(iface);
+            let network_name = if is_wireless.unwrap_or(false) {
+                get_wireless_ssid(iface)
+            } else {
+                None
+            };
+            let mac = get_interface_mac(iface);
+            let speed = get_interface_speed(iface);
+            (Some(iface.clone()), network_name, is_wireless, mac, speed)
+        } else {
+            // Auto-detect default interface
+            gather_network_info()
+        };
     state.interface_name = interface_name;
     state.network_name = network_name;
     state.is_wireless = is_wireless;

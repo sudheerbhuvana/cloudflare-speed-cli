@@ -18,6 +18,8 @@ pub struct RunConfig {
     pub probe_timeout_ms: u64,
     pub user_agent: String,
     pub experimental: bool,
+    pub interface: Option<String>,
+    pub source_ip: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

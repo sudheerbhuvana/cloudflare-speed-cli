@@ -72,6 +72,14 @@ pub struct Cli {
     /// Automatically save test results (default: true)
     #[arg(long, default_value_t = true)]
     pub auto_save: bool,
+
+    /// Bind to a specific network interface (e.g., ens18, eth0)
+    #[arg(long)]
+    pub interface: Option<String>,
+
+    /// Bind to a specific source IP address (e.g., 192.168.10.0)
+    #[arg(long)]
+    pub source: Option<String>,
 }
 
 pub async fn run(args: Cli) -> Result<()> {
@@ -116,6 +124,8 @@ pub fn build_config(args: &Cli) -> RunConfig {
         probe_timeout_ms: args.probe_timeout_ms,
         user_agent: format!("cloudflare-speed-cli/{}", env!("CARGO_PKG_VERSION")),
         experimental: args.experimental,
+        interface: args.interface.clone(),
+        source_ip: args.source.clone(),
     }
 }
 
