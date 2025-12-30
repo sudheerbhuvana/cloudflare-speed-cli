@@ -147,11 +147,15 @@ async fn run_json(args: Cli) -> Result<()> {
         .await
         .context("speed test failed")?;
 
-    handle_exports(&args, &result)?;
+    // Gather network information and enrich result
+    let network_info = crate::network::gather_network_info(&args);
+    let enriched = crate::network::enrich_result(&result, &network_info);
 
-    println!("{}", serde_json::to_string_pretty(&result)?);
+    handle_exports(&args, &enriched)?;
+
+    println!("{}", serde_json::to_string_pretty(&enriched)?);
     if args.auto_save {
-        if let Ok(p) = crate::storage::save_run(&result) {
+        if let Ok(p) = crate::storage::save_run(&enriched) {
             eprintln!("Saved: {}", p.display());
         }
     }
@@ -200,8 +204,12 @@ async fn run_text(args: Cli) -> Result<()> {
 
     let result = handle.await??;
 
-    handle_exports(&args, &result)?;
-    if let Some(meta) = result.meta.as_ref() {
+    // Gather network information and enrich result
+    let network_info = crate::network::gather_network_info(&args);
+    let enriched = crate::network::enrich_result(&result, &network_info);
+
+    handle_exports(&args, &enriched)?;
+    if let Some(meta) = enriched.meta.as_ref() {
         let ip = meta.get("clientIp").and_then(|v| v.as_str()).unwrap_or("-");
         let colo = meta.get("colo").and_then(|v| v.as_str()).unwrap_or("-");
         let asn = meta
@@ -215,36 +223,36 @@ async fn run_text(args: Cli) -> Result<()> {
             .unwrap_or("-");
         println!("IP/Colo/ASN: {ip} / {colo} / {asn} ({org})");
     }
-    if let Some(server) = result.server.as_deref() {
+    if let Some(server) = enriched.server.as_deref() {
         println!("Server: {server}");
     }
-    println!("Download: {:.2} Mbps", result.download.mbps);
-    println!("Upload:   {:.2} Mbps", result.upload.mbps);
+    println!("Download: {:.2} Mbps", enriched.download.mbps);
+    println!("Upload:   {:.2} Mbps", enriched.upload.mbps);
     println!(
         "Idle latency p50/p90/p99: {:.1}/{:.1}/{:.1} ms (loss {:.1}%, jitter {:.1} ms)",
-        result.idle_latency.p50_ms.unwrap_or(f64::NAN),
-        result.idle_latency.p90_ms.unwrap_or(f64::NAN),
-        result.idle_latency.p99_ms.unwrap_or(f64::NAN),
-        result.idle_latency.loss * 100.0,
-        result.idle_latency.jitter_ms.unwrap_or(f64::NAN)
+        enriched.idle_latency.p50_ms.unwrap_or(f64::NAN),
+        enriched.idle_latency.p90_ms.unwrap_or(f64::NAN),
+        enriched.idle_latency.p99_ms.unwrap_or(f64::NAN),
+        enriched.idle_latency.loss * 100.0,
+        enriched.idle_latency.jitter_ms.unwrap_or(f64::NAN)
     );
     println!(
         "Loaded latency (download) p50/p90/p99: {:.1}/{:.1}/{:.1} ms (loss {:.1}%, jitter {:.1} ms)",
-        result.loaded_latency_download.p50_ms.unwrap_or(f64::NAN),
-        result.loaded_latency_download.p90_ms.unwrap_or(f64::NAN),
-        result.loaded_latency_download.p99_ms.unwrap_or(f64::NAN),
-        result.loaded_latency_download.loss * 100.0,
-        result.loaded_latency_download.jitter_ms.unwrap_or(f64::NAN)
+        enriched.loaded_latency_download.p50_ms.unwrap_or(f64::NAN),
+        enriched.loaded_latency_download.p90_ms.unwrap_or(f64::NAN),
+        enriched.loaded_latency_download.p99_ms.unwrap_or(f64::NAN),
+        enriched.loaded_latency_download.loss * 100.0,
+        enriched.loaded_latency_download.jitter_ms.unwrap_or(f64::NAN)
     );
     println!(
         "Loaded latency (upload) p50/p90/p99: {:.1}/{:.1}/{:.1} ms (loss {:.1}%, jitter {:.1} ms)",
-        result.loaded_latency_upload.p50_ms.unwrap_or(f64::NAN),
-        result.loaded_latency_upload.p90_ms.unwrap_or(f64::NAN),
-        result.loaded_latency_upload.p99_ms.unwrap_or(f64::NAN),
-        result.loaded_latency_upload.loss * 100.0,
-        result.loaded_latency_upload.jitter_ms.unwrap_or(f64::NAN)
+        enriched.loaded_latency_upload.p50_ms.unwrap_or(f64::NAN),
+        enriched.loaded_latency_upload.p90_ms.unwrap_or(f64::NAN),
+        enriched.loaded_latency_upload.p99_ms.unwrap_or(f64::NAN),
+        enriched.loaded_latency_upload.loss * 100.0,
+        enriched.loaded_latency_upload.jitter_ms.unwrap_or(f64::NAN)
     );
-    if let Some(ref exp) = result.experimental_udp {
+    if let Some(ref exp) = enriched.experimental_udp {
         println!(
             "Experimental UDP-like loss probe: loss {:.1}% p50 {} ms (target {:?})",
             exp.latency.loss * 100.0,
@@ -253,7 +261,7 @@ async fn run_text(args: Cli) -> Result<()> {
         );
     }
     if args.auto_save {
-        if let Ok(p) = crate::storage::save_run(&result) {
+        if let Ok(p) = crate::storage::save_run(&enriched) {
             eprintln!("Saved: {}", p.display());
         }
     }

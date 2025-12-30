@@ -1,6 +1,7 @@
 mod cli;
 mod engine;
 mod model;
+mod network;
 mod stats;
 mod storage;
 #[cfg(feature = "tui")]

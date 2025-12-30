@@ -17,7 +17,6 @@ use ratatui::{
     widgets::{Axis, Block, Borders, Chart, Dataset, GraphType, Paragraph, Sparkline, Tabs},
     Terminal,
 };
-use std::process::Command;
 use std::{io, time::Duration, time::Instant};
 use tokio::sync::mpsc;
 
@@ -211,122 +210,6 @@ impl UiState {
     }
 }
 
-/// Gather network interface information
-fn gather_network_info() -> (
-    Option<String>,
-    Option<String>,
-    Option<bool>,
-    Option<String>,
-    Option<u64>,
-) {
-    // Get default interface by trying to connect to a remote address
-    let interface_name = get_default_interface();
-
-    if let Some(ref iface) = interface_name {
-        let is_wireless = check_if_wireless(iface);
-        let network_name = if is_wireless.unwrap_or(false) {
-            get_wireless_ssid(iface)
-        } else {
-            None
-        };
-        let mac = get_interface_mac(iface);
-        let speed = get_interface_speed(iface);
-        (Some(iface.clone()), network_name, is_wireless, mac, speed)
-    } else {
-        (None, None, None, None, None)
-    }
-}
-
-/// Get the default network interface name
-fn get_default_interface() -> Option<String> {
-    // Try to get interface from default route
-    if let Ok(output) = Command::new("ip")
-        .args(&["route", "show", "default"])
-        .output()
-    {
-        if let Ok(output_str) = String::from_utf8(output.stdout) {
-            // Look for "dev <interface>" in the output
-            for line in output_str.lines() {
-                if let Some(dev_pos) = line.find("dev ") {
-                    let rest = &line[dev_pos + 4..];
-                    return if let Some(space_pos) = rest.find(' ') {
-                        Some(rest[..space_pos].to_string())
-                    } else {
-                        Some(rest.to_string())
-                    }
-                }
-            }
-        }
-    }
-
-    // Fallback: try to find first non-loopback interface
-    if let Ok(entries) = std::fs::read_dir("/sys/class/net") {
-        for entry in entries.flatten() {
-            let name = entry.file_name();
-            let name_str = name.to_string_lossy();
-            if name_str != "lo" && !name_str.starts_with("docker") && !name_str.starts_with("br-") {
-                return Some(name_str.to_string());
-            }
-        }
-    }
-
-    None
-}
-
-/// Check if interface is wireless
-fn check_if_wireless(iface: &str) -> Option<bool> {
-    // Check if /sys/class/net/<iface>/wireless exists
-    let wireless_path = format!("/sys/class/net/{}/wireless", iface);
-    Some(std::path::Path::new(&wireless_path).exists())
-}
-
-/// Get wireless SSID for an interface
-fn get_wireless_ssid(iface: &str) -> Option<String> {
-    // Try iwgetid first (most reliable)
-    if let Ok(output) = Command::new("iwgetid").arg("-r").arg(iface).output() {
-        if let Ok(ssid) = String::from_utf8(output.stdout) {
-            let ssid = ssid.trim().to_string();
-            if !ssid.is_empty() {
-                return Some(ssid);
-            }
-        }
-    }
-
-    // Fallback: try iw command
-    if let Ok(output) = Command::new("iw").args(&["dev", iface, "info"]).output() {
-        if let Ok(output_str) = String::from_utf8(output.stdout) {
-            for line in output_str.lines() {
-                if line.trim().starts_with("ssid ") {
-                    let ssid = line.trim().strip_prefix("ssid ").unwrap_or("").trim();
-                    if !ssid.is_empty() {
-                        return Some(ssid.to_string());
-                    }
-                }
-            }
-        }
-    }
-
-    None
-}
-
-/// Get MAC address of interface
-fn get_interface_mac(iface: &str) -> Option<String> {
-    let mac_path = format!("/sys/class/net/{}/address", iface);
-    std::fs::read_to_string(mac_path)
-        .ok()
-        .map(|s| s.trim().to_string())
-        .filter(|s| !s.is_empty())
-}
-
-/// Get link speed in Mbps
-fn get_interface_speed(iface: &str) -> Option<u64> {
-    let speed_path = format!("/sys/class/net/{}/speed", iface);
-    std::fs::read_to_string(speed_path)
-        .ok()
-        .and_then(|s| s.trim().parse::<u64>().ok())
-        .filter(|&speed| speed > 0 && speed < 1_000_000) // Sanity check
-}
-
 pub async fn run(args: Cli) -> Result<()> {
     enable_raw_mode().context("enable raw mode")?;
     let mut stdout = io::stdout();
@@ -352,29 +235,13 @@ pub async fn run(args: Cli) -> Result<()> {
     state.history = crate::storage::load_recent(initial_load).unwrap_or_default();
     state.history_loaded_count = state.history.len();
 
-    // Gather network interface information
-    // If interface is specified via CLI, use that; otherwise auto-detect
-    let (interface_name, network_name, is_wireless, interface_mac, link_speed_mbps) = 
-        if let Some(ref iface) = args.interface {
-            // Use the specified interface
-            let is_wireless = check_if_wireless(iface);
-            let network_name = if is_wireless.unwrap_or(false) {
-                get_wireless_ssid(iface)
-            } else {
-                None
-            };
-            let mac = get_interface_mac(iface);
-            let speed = get_interface_speed(iface);
-            (Some(iface.clone()), network_name, is_wireless, mac, speed)
-        } else {
-            // Auto-detect default interface
-            gather_network_info()
-        };
-    state.interface_name = interface_name;
-    state.network_name = network_name;
-    state.is_wireless = is_wireless;
-    state.interface_mac = interface_mac;
-    state.link_speed_mbps = link_speed_mbps;
+    // Gather network interface information using shared module
+    let network_info = crate::network::gather_network_info(&args);
+    state.interface_name = network_info.interface_name.clone();
+    state.network_name = network_info.network_name.clone();
+    state.is_wireless = network_info.is_wireless;
+    state.interface_mac = network_info.interface_mac.clone();
+    state.link_speed_mbps = network_info.link_speed_mbps;
     state.certificate_filename = args.certificate.as_ref()
         .and_then(|p| p.file_name())
         .and_then(|n| n.to_str())
@@ -407,33 +274,81 @@ pub async fn run(args: Cli) -> Result<()> {
                             run_ctx.ctrl_tx.send(EngineControl::Pause(state.paused)).await.ok();
                         }
                         (_, KeyCode::Char('r')) => {
-                            state.info = "Restarting…".into();
-                            run_ctx.ctrl_tx.send(EngineControl::Cancel).await.ok();
-                            if let Some(h) = run_ctx.handle.take() {
-                                let _ = h.await;
+                            // Refresh history (only when on history tab)
+                            if state.tab == 1 {
+                                let reload_size = state.initial_history_load_size.max(state.history_loaded_count);
+                                match crate::storage::load_recent(reload_size) {
+                                    Ok(new_history) => {
+                                        let old_count = state.history.len();
+                                        state.history = new_history;
+                                        state.history_loaded_count = state.history.len();
+                                        
+                                        // Adjust selection if needed
+                                        if state.history_selected >= state.history.len() && !state.history.is_empty() {
+                                            state.history_selected = state.history.len() - 1;
+                                        } else if state.history.is_empty() {
+                                            state.history_selected = 0;
+                                            state.history_scroll_offset = 0;
+                                        }
+                                        
+                                        // Adjust scroll offset if needed
+                                        if state.history_scroll_offset >= state.history.len() && !state.history.is_empty() {
+                                            state.history_scroll_offset = state.history.len().saturating_sub(20).max(0);
+                                        }
+                                        
+                                        let new_count = state.history.len();
+                                        if new_count > old_count {
+                                            state.info = format!("Refreshed: {} new run(s)", new_count - old_count);
+                                        } else if new_count < old_count {
+                                            state.info = format!("Refreshed: {} run(s) removed", old_count - new_count);
+                                        } else {
+                                            state.info = "Refreshed".into();
+                                        }
+                                    }
+                                    Err(e) => {
+                                        state.info = format!("Refresh failed: {e:#}");
+                                    }
+                                }
+                            } else {
+                                // Rerun (only when NOT on history tab)
+                                state.info = "Restarting…".into();
+                                run_ctx.ctrl_tx.send(EngineControl::Cancel).await.ok();
+                                if let Some(h) = run_ctx.handle.take() {
+                                    let _ = h.await;
+                                }
+                                state.last_result = None;
+                                state.run_start = Instant::now();
+                                state.dl_series.clear();
+                                state.ul_series.clear();
+                                state.idle_lat_series.clear();
+                                state.loaded_dl_lat_series.clear();
+                                state.loaded_ul_lat_series.clear();
+                                state.dl_points.clear();
+                                state.ul_points.clear();
+                                state.idle_lat_points.clear();
+                                state.loaded_dl_lat_points.clear();
+                                state.loaded_ul_lat_points.clear();
+                                state.dl_mbps = 0.0;
+                                state.ul_mbps = 0.0;
+                                state.dl_avg_mbps = 0.0;
+                                state.ul_avg_mbps = 0.0;
+                                state.dl_bytes_total = 0;
+                                state.ul_bytes_total = 0;
+                                state.dl_phase_start = None;
+                                state.ul_phase_start = None;
+                                state.idle_latency_samples.clear();
+                                state.loaded_dl_latency_samples.clear();
+                                state.loaded_ul_latency_samples.clear();
+                                state.idle_latency_sent = 0;
+                                state.idle_latency_received = 0;
+                                state.loaded_dl_latency_sent = 0;
+                                state.loaded_dl_latency_received = 0;
+                                state.loaded_ul_latency_sent = 0;
+                                state.loaded_ul_latency_received = 0;
+                                state.phase = Phase::IdleLatency;
+                                state.paused = false;
+                                run_ctx = start_run(&args).await?;
                             }
-                            state.last_result = None;
-                            state.run_start = Instant::now();
-                            state.dl_series.clear();
-                            state.ul_series.clear();
-                            state.idle_lat_series.clear();
-                            state.loaded_dl_lat_series.clear();
-                            state.loaded_ul_lat_series.clear();
-                            state.dl_points.clear();
-                            state.ul_points.clear();
-                            state.idle_lat_points.clear();
-                            state.loaded_dl_lat_points.clear();
-                            state.loaded_ul_lat_points.clear();
-                            state.dl_mbps = 0.0;
-                            state.ul_mbps = 0.0;
-                            state.dl_avg_mbps = 0.0;
-                            state.ul_avg_mbps = 0.0;
-                            state.dl_bytes_total = 0;
-                            state.ul_bytes_total = 0;
-                            state.dl_phase_start = None;
-                            state.ul_phase_start = None;
-                            state.paused = false;
-                            run_ctx = start_run(&args).await?;
                         }
                         (_, KeyCode::Char('s')) => {
                             // Only save on dashboard (auto-save location)
@@ -1565,6 +1480,11 @@ fn draw_help(area: Rect, f: &mut ratatui::Frame) {
             Span::styled("d", Style::default().fg(Color::Magenta)),
             Span::raw("           Delete selected"),
         ]),
+        Line::from(vec![
+            Span::raw("  "),
+            Span::styled("r", Style::default().fg(Color::Magenta)),
+            Span::raw("           Refresh history"),
+        ]),
         Line::from(""),
     ])
     .block(Block::default().borders(Borders::ALL).title("Help"));
@@ -1572,17 +1492,26 @@ fn draw_help(area: Rect, f: &mut ratatui::Frame) {
 }
 
 /// Enrich RunResult with network information from UiState.
+/// This uses the shared enrichment function and then adds TUI-specific state (IP, colo, etc.)
 fn enrich_result_with_network_info(r: &RunResult, state: &UiState) -> RunResult {
-    let mut enriched = r.clone();
+    // Create NetworkInfo from UiState
+    let network_info = crate::network::NetworkInfo {
+        interface_name: state.interface_name.clone(),
+        network_name: state.network_name.clone(),
+        is_wireless: state.is_wireless,
+        interface_mac: state.interface_mac.clone(),
+        link_speed_mbps: state.link_speed_mbps,
+    };
+    
+    // Use shared enrichment function
+    let mut enriched = crate::network::enrich_result(r, &network_info);
+    
+    // Override with TUI state values (which may have been updated from meta)
     enriched.ip = state.ip.clone();
     enriched.colo = state.colo.clone();
     enriched.asn = state.asn.clone();
     enriched.as_org = state.as_org.clone();
-    enriched.interface_name = state.interface_name.clone();
-    enriched.network_name = state.network_name.clone();
-    enriched.is_wireless = state.is_wireless;
-    enriched.interface_mac = state.interface_mac.clone();
-    enriched.link_speed_mbps = state.link_speed_mbps;
+    
     // Server might already be set, but update from state if available
     if enriched.server.is_none() {
         enriched.server = state.server.clone();
@@ -1708,6 +1637,8 @@ fn draw_history(area: Rect, f: &mut ratatui::Frame, state: &UiState) {
         Span::raw(") - "),
         Span::styled("↑/↓/j/k", Style::default().fg(Color::Magenta)),
         Span::raw(": navigate, "),
+        Span::styled("r", Style::default().fg(Color::Magenta)),
+        Span::raw(": refresh, "),
         Span::styled("d", Style::default().fg(Color::Magenta)),
         Span::raw(": delete, "),
         Span::styled("e", Style::default().fg(Color::Magenta)),
