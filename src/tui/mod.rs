@@ -572,7 +572,26 @@ pub async fn run(args: Cli) -> Result<()> {
                                     }
                                     // Enrich result with network info before storing
                                     let enriched = enrich_result_with_network_info(&r, &state);
-                                    state.last_result = Some(enriched);
+                                    state.last_result = Some(enriched.clone());
+
+                                    // Handle command-line export flags
+                                    let mut export_messages = Vec::new();
+                                    if let Some(export_path) = args.export_json.as_deref() {
+                                        match crate::storage::export_json(export_path, &enriched) {
+                                            Ok(_) => export_messages.push(format!("Exported JSON: {}", export_path.display())),
+                                            Err(e) => export_messages.push(format!("Export JSON failed: {e:#}")),
+                                        }
+                                    }
+                                    if let Some(export_path) = args.export_csv.as_deref() {
+                                        match crate::storage::export_csv(export_path, &enriched) {
+                                            Ok(_) => export_messages.push(format!("Exported CSV: {}", export_path.display())),
+                                            Err(e) => export_messages.push(format!("Export CSV failed: {e:#}")),
+                                        }
+                                    }
+                                    if !export_messages.is_empty() {
+                                        state.info = export_messages.join("; ");
+                                    }
+
                                     // Reload history to include the new test
                                     // Load at least one more than we had before to ensure the new test is included
                                     let reload_size = (state.history_loaded_count + 1).max(state.initial_history_load_size);

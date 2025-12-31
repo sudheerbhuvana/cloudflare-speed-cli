@@ -43,12 +43,20 @@ pub fn delete_run(result: &RunResult) -> Result<()> {
 }
 
 pub fn export_json(path: &Path, result: &RunResult) -> Result<()> {
+    // Create parent directories if they don't exist
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).context("create export directory")?;
+    }
     let data = serde_json::to_vec_pretty(result)?;
     std::fs::write(path, data).context("write export json")?;
     Ok(())
 }
 
 pub fn export_csv(path: &Path, result: &RunResult) -> Result<()> {
+    // Create parent directories if they don't exist
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).context("create export directory")?;
+    }
     let mut out = String::new();
     out.push_str("timestamp_utc,base_url,meas_id,server,download_mbps,upload_mbps,idle_p50_ms,idle_p90_ms,idle_p99_ms,idle_loss,dl_loaded_p50_ms,dl_loaded_p90_ms,dl_loaded_p99_ms,dl_loaded_loss,ul_loaded_p50_ms,ul_loaded_p90_ms,ul_loaded_p99_ms,ul_loaded_loss,ip,colo,asn,as_org,interface_name,network_name,is_wireless,interface_mac,link_speed_mbps\n");
     out.push_str(&format!(
