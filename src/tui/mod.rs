@@ -9,7 +9,7 @@ use crossterm::{
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
-use futures::StreamExt;
+use futures::{future, StreamExt};
 use ratatui::{
     backend::CrosstermBackend,
     layout::{Constraint, Direction, Layout, Rect},
@@ -256,8 +256,12 @@ pub async fn run(args: Cli) -> Result<()> {
     let mut events = EventStream::new();
     let mut tick = tokio::time::interval(Duration::from_millis(100));
 
-    // Start first run.
-    let mut run_ctx = start_run(&args).await?;
+    // Start first run if test_on_launch is enabled
+    let mut run_ctx = if args.test_on_launch {
+        Some(start_run(&args).await?)
+    } else {
+        None
+    };
 
     let res = loop {
         tokio::select! {
@@ -272,12 +276,16 @@ pub async fn run(args: Cli) -> Result<()> {
                     }
                     match (k.modifiers, k.code) {
                         (_, KeyCode::Char('q')) | (KeyModifiers::CONTROL, KeyCode::Char('c')) => {
-                            run_ctx.ctrl_tx.send(EngineControl::Cancel).await.ok();
+                            if let Some(ref ctx) = run_ctx {
+                                ctx.ctrl_tx.send(EngineControl::Cancel).await.ok();
+                            }
                             break Ok(());
                         }
                         (_, KeyCode::Char('p')) => {
-                            state.paused = !state.paused;
-                            run_ctx.ctrl_tx.send(EngineControl::Pause(state.paused)).await.ok();
+                            if let Some(ref ctx) = run_ctx {
+                                state.paused = !state.paused;
+                                ctx.ctrl_tx.send(EngineControl::Pause(state.paused)).await.ok();
+                            }
                         }
                         (_, KeyCode::Char('r')) => {
                             // Refresh history (only when on history tab)
@@ -318,9 +326,11 @@ pub async fn run(args: Cli) -> Result<()> {
                             } else {
                                 // Rerun (only when NOT on history tab)
                                 state.info = "Restarting…".into();
-                                run_ctx.ctrl_tx.send(EngineControl::Cancel).await.ok();
-                                if let Some(h) = run_ctx.handle.take() {
-                                    let _ = h.await;
+                                if let Some(ref mut ctx) = run_ctx {
+                                    ctx.ctrl_tx.send(EngineControl::Cancel).await.ok();
+                                    if let Some(h) = ctx.handle.take() {
+                                        let _ = h.await;
+                                    }
                                 }
                                 state.last_result = None;
                                 state.run_start = Instant::now();
@@ -353,7 +363,7 @@ pub async fn run(args: Cli) -> Result<()> {
                                 state.loaded_ul_latency_received = 0;
                                 state.phase = Phase::IdleLatency;
                                 state.paused = false;
-                                run_ctx = start_run(&args).await?;
+                                run_ctx = Some(start_run(&args).await?);
                             }
                         }
                         (_, KeyCode::Char('s')) => {
@@ -531,11 +541,19 @@ pub async fn run(args: Cli) -> Result<()> {
                     }
                 }
             }
-            maybe_engine_ev = run_ctx.event_rx.recv() => {
+            // wrapping in conditional async to avoid spiking cpu usage when run_ctx is None
+            maybe_engine_ev = async {
+                if let Some(ref mut ctx) = run_ctx {
+                    ctx.event_rx.recv().await
+                } else {
+                    future::pending().await
+                }
+            } => {
                 match maybe_engine_ev {
                     None => {
                         // engine finished; wait for result
-                        if let Some(h) = run_ctx.handle.take() {
+                        if let Some(ctx) = &mut run_ctx {
+                            if let Some(h) = ctx.handle.take() {
                             match h.await {
                                 Ok(Ok(r)) => {
                                     if state.auto_save {
@@ -607,6 +625,8 @@ pub async fn run(args: Cli) -> Result<()> {
                                 Ok(Err(e)) => state.info = format!("Run failed: {e:#}"),
                                 Err(e) => state.info = format!("Run join failed: {e}"),
                             }
+                            }
+                            run_ctx = None; // Clear run_ctx after test completes
                         }
                     }
                     Some(ev) => apply_event(&mut state, ev),

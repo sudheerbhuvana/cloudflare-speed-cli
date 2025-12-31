@@ -60,9 +60,11 @@ impl TestEngine {
             });
 
         // Control listener.
+        // This task will exit naturally when the sender is dropped (which happens in cli.rs)
+        // The receiver will return None and the loop will exit cleanly
         let paused2 = paused.clone();
         let cancel2 = cancel.clone();
-        tokio::spawn(async move {
+        let control_handle = tokio::spawn(async move {
             while let Some(msg) = control_rx.recv().await {
                 match msg {
                     EngineControl::Pause(p) => paused2.store(p, Ordering::Relaxed),
@@ -152,6 +154,13 @@ impl TestEngine {
                 turn = Some(info);
             }
         }
+
+        // Abort the control listener task before returning.
+        // In Tokio, dropping a JoinHandle does NOT cancel the task - it continues running!
+        // This was causing high CPU usage when idle because the task was still waiting
+        // on control_rx.recv().await even after the test completed.
+        control_handle.abort();
+        // Don't await the aborted task - just let it be cleaned up
 
         Ok(RunResult {
             timestamp_utc: time::OffsetDateTime::now_utc()

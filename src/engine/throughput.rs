@@ -89,7 +89,7 @@ pub async fn run_download_with_loaded_latency(
     let paused2 = paused.clone();
     let cancel2 = cancel.clone();
     let cfg2 = cfg.clone();
-    tokio::spawn(async move {
+    let lat_handle = tokio::spawn(async move {
         let res = run_latency_probes(
             &client2,
             Phase::Download,
@@ -165,6 +165,9 @@ pub async fn run_download_with_loaded_latency(
         .await
         .context("loaded latency task ended unexpectedly")?;
 
+    // Ensure the latency probe task has completed
+    let _ = lat_handle.await;
+
     Ok((dl, loaded_latency))
 }
 
@@ -229,7 +232,7 @@ pub async fn run_upload_with_loaded_latency(
     let paused2 = paused.clone();
     let cancel2 = cancel.clone();
     let cfg2 = cfg.clone();
-    tokio::spawn(async move {
+    let lat_handle = tokio::spawn(async move {
         let res = run_latency_probes(
             &client2,
             Phase::Upload,
@@ -304,6 +307,9 @@ pub async fn run_upload_with_loaded_latency(
         .recv()
         .await
         .context("loaded latency task ended unexpectedly")?;
+
+    // Ensure the latency probe task has completed
+    let _ = lat_handle.await;
 
     Ok((up, loaded_latency))
 }

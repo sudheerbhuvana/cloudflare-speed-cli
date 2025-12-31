@@ -69,7 +69,7 @@ pub struct Cli {
     #[arg(long)]
     pub export_csv: Option<std::path::PathBuf>,
 
-    /// Use --auto-save true or --auto-save false to override (default: true)
+    /// Use --auto-save true or --auto-save false to override
     #[arg(long, default_value_t = true, action = clap::ArgAction::Set)]
     pub auto_save: bool,
 
@@ -84,6 +84,10 @@ pub struct Cli {
     /// Path to a custom TLS certificate file (PEM or DER format)
     #[arg(long)]
     pub certificate: Option<std::path::PathBuf>,
+
+    /// Automatically start a test when the app launches
+    #[arg(long, default_value_t = true, action = clap::ArgAction::Set)]
+    pub test_on_launch: bool,
 }
 
 pub async fn run(args: Cli) -> Result<()> {
