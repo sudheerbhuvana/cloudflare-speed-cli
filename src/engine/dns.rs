@@ -124,10 +124,7 @@ fn get_dns_from_resolv_conf() -> Vec<String> {
 fn get_systemd_resolved_servers() -> Option<Vec<String>> {
     use std::process::Command;
 
-    let output = Command::new("resolvectl")
-        .arg("status")
-        .output()
-        .ok()?;
+    let output = Command::new("resolvectl").arg("status").output().ok()?;
 
     if !output.status.success() {
         return None;
@@ -234,7 +231,11 @@ enum IpVersion {
     V6,
 }
 
-async fn fetch_external_ip_version(url: &str, hostname: &str, version: IpVersion) -> Option<String> {
+async fn fetch_external_ip_version(
+    url: &str,
+    hostname: &str,
+    version: IpVersion,
+) -> Option<String> {
     use std::net::SocketAddr;
     use std::time::Duration;
 
@@ -246,11 +247,9 @@ async fn fetch_external_ip_version(url: &str, hostname: &str, version: IpVersion
         .collect();
 
     // Find an address of the requested version
-    let target_addr = addrs.into_iter().find(|addr| {
-        match version {
-            IpVersion::V4 => addr.is_ipv4(),
-            IpVersion::V6 => addr.is_ipv6(),
-        }
+    let target_addr = addrs.into_iter().find(|addr| match version {
+        IpVersion::V4 => addr.is_ipv4(),
+        IpVersion::V6 => addr.is_ipv6(),
     })?;
 
     // Build client that resolves to the specific IP

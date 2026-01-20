@@ -18,7 +18,9 @@ const TEST_DURATION: Duration = Duration::from_secs(3);
 /// abbreviated speed tests on each protocol.
 pub async fn compare_ip_versions(base_url: &str, user_agent: &str) -> Result<IpVersionComparison> {
     let url = Url::parse(base_url)?;
-    let hostname = url.host_str().ok_or_else(|| anyhow::anyhow!("No host in URL"))?;
+    let hostname = url
+        .host_str()
+        .ok_or_else(|| anyhow::anyhow!("No host in URL"))?;
     let port = url.port_or_known_default().unwrap_or(443);
 
     // Resolve hostname to get both IPv4 and IPv6 addresses
@@ -199,11 +201,7 @@ async fn run_upload_test(
     let mut total_bytes: u64 = 0;
 
     while start.elapsed() < duration {
-        let _resp = client
-            .post(&url)
-            .body(upload_data.clone())
-            .send()
-            .await?;
+        let _resp = client.post(&url).body(upload_data.clone()).send().await?;
         total_bytes += upload_data.len() as u64;
     }
 

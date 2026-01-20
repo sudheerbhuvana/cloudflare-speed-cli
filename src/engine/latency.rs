@@ -3,10 +3,7 @@ use crate::engine::wait_if_paused_or_cancelled;
 use crate::model::{LatencySummary, Phase, TestEvent};
 use crate::stats::{latency_summary_from_samples, OnlineStats};
 use anyhow::Result;
-use std::sync::{
-    atomic::AtomicBool,
-    Arc,
-};
+use std::sync::{atomic::AtomicBool, Arc};
 use std::time::{Duration, Instant};
 use tokio::sync::mpsc;
 

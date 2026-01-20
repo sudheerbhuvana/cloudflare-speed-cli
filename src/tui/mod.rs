@@ -908,7 +908,11 @@ fn apply_event(state: &mut UiState, ev: TestEvent) {
         }
         TestEvent::TracerouteHop { hop_number, hop } => {
             let addr = hop.ip_address.as_deref().unwrap_or("*");
-            let rtt = hop.rtt_ms.first().map(|r| format!("{:.1}ms", r)).unwrap_or_else(|| "*".to_string());
+            let rtt = hop
+                .rtt_ms
+                .first()
+                .map(|r| format!("{:.1}ms", r))
+                .unwrap_or_else(|| "*".to_string());
             state.info = format!("Traceroute hop {}: {} {}", hop_number, addr, rtt);
         }
         TestEvent::TracerouteComplete { summary } => {
@@ -1276,7 +1280,12 @@ fn draw_dashboard(area: Rect, f: &mut ratatui::Frame, state: &UiState) {
         ]),
         Line::from(vec![
             Span::styled("External IPv4: ", Style::default().fg(Color::Gray)),
-            Span::raw(state.external_ipv4.as_deref().unwrap_or(state.ip.as_deref().unwrap_or("-"))),
+            Span::raw(
+                state
+                    .external_ipv4
+                    .as_deref()
+                    .unwrap_or(state.ip.as_deref().unwrap_or("-")),
+            ),
         ]),
         Line::from(vec![
             Span::styled("External IPv6: ", Style::default().fg(Color::Gray)),

@@ -71,10 +71,7 @@ pub fn export_csv(path: &Path, result: &RunResult) -> Result<()> {
         .map(|d| d.dns_servers.join("; "))
         .unwrap_or_default();
     let tls_handshake_ms = result.tls.as_ref().map(|t| t.handshake_time_ms);
-    let tls_protocol = result
-        .tls
-        .as_ref()
-        .and_then(|t| t.protocol_version.clone());
+    let tls_protocol = result.tls.as_ref().and_then(|t| t.protocol_version.clone());
     let tls_cipher = result.tls.as_ref().and_then(|t| t.cipher_suite.clone());
 
     // IPv4 results

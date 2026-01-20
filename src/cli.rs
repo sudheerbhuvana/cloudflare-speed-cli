@@ -378,7 +378,11 @@ async fn run_text(args: Cli) -> Result<()> {
                 eprintln!(
                     "Traceroute to {} {} ({} hops)",
                     summary.destination,
-                    if summary.completed { "completed" } else { "incomplete" },
+                    if summary.completed {
+                        "completed"
+                    } else {
+                        "incomplete"
+                    },
                     summary.hops.len()
                 );
             }

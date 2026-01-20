@@ -26,13 +26,11 @@ pub fn extract_metadata(meta: &Value) -> ExtractedMetadata {
         .and_then(|v| v.as_str())
         .map(|s| s.to_string());
 
-    let asn = meta
-        .get("asn")
-        .and_then(|v| {
-            v.as_i64()
-                .map(|n| n.to_string())
-                .or_else(|| v.as_str().map(|s| s.to_string()))
-        });
+    let asn = meta.get("asn").and_then(|v| {
+        v.as_i64()
+            .map(|n| n.to_string())
+            .or_else(|| v.as_str().map(|s| s.to_string()))
+    });
 
     let as_org = ["asOrganization", "asnOrg"]
         .iter()
@@ -40,7 +38,12 @@ pub fn extract_metadata(meta: &Value) -> ExtractedMetadata {
         .and_then(|v| v.as_str())
         .map(|s| s.to_string());
 
-    ExtractedMetadata { ip, colo, asn, as_org }
+    ExtractedMetadata {
+        ip,
+        colo,
+        asn,
+        as_org,
+    }
 }
 
 /// Network information gathered from the system
@@ -84,12 +87,7 @@ pub fn gather_network_info(args: &Cli) -> NetworkInfo {
 }
 
 /// Gather network interface information for the default interface
-fn gather_default_network_info() -> (
-    Option<String>,
-    Option<String>,
-    Option<bool>,
-    Option<String>,
-) {
+fn gather_default_network_info() -> (Option<String>, Option<String>, Option<bool>, Option<String>) {
     // Get default interface by trying to connect to a remote address
     let interface_name = get_default_interface();
 

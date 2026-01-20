@@ -76,7 +76,9 @@ async fn run_icmp_traceroute(
     let dest_v4 = match destination {
         IpAddr::V4(v4) => *v4,
         IpAddr::V6(_) => {
-            return Err(anyhow::anyhow!("IPv6 traceroute not yet supported via raw sockets"));
+            return Err(anyhow::anyhow!(
+                "IPv6 traceroute not yet supported via raw sockets"
+            ));
         }
     };
 
@@ -247,19 +249,33 @@ async fn run_system_traceroute(
 
     // Determine which command to use based on OS
     let (cmd, args): (&'static str, Vec<String>) = if cfg!(target_os = "windows") {
-        ("tracert", vec!["-h".to_string(), max_hops.to_string(), "-d".to_string(), dest.clone()])
+        (
+            "tracert",
+            vec![
+                "-h".to_string(),
+                max_hops.to_string(),
+                "-d".to_string(),
+                dest.clone(),
+            ],
+        )
     } else {
-        ("traceroute", vec!["-m".to_string(), max_hops.to_string(), "-n".to_string(), "-q".to_string(), "3".to_string(), dest.clone()])
+        (
+            "traceroute",
+            vec![
+                "-m".to_string(),
+                max_hops.to_string(),
+                "-n".to_string(),
+                "-q".to_string(),
+                "3".to_string(),
+                dest.clone(),
+            ],
+        )
     };
 
-    let output = tokio::task::spawn_blocking(move || {
-        Command::new(cmd)
-            .args(&args)
-            .output()
-    })
-    .await
-    .context("Traceroute task failed")?
-    .context("Failed to execute traceroute command")?;
+    let output = tokio::task::spawn_blocking(move || Command::new(cmd).args(&args).output())
+        .await
+        .context("Traceroute task failed")?
+        .context("Failed to execute traceroute command")?;
 
     let stdout = String::from_utf8_lossy(&output.stdout);
     let hops = parse_traceroute_output(&stdout, event_tx).await;
@@ -353,7 +369,11 @@ fn parse_hop_line(line: &str) -> Option<TracerouteHop> {
 
         // Handle Windows "<1 ms" format
         if part.starts_with('<') {
-            if let Ok(rtt) = part.trim_start_matches('<').trim_end_matches("ms").parse::<f64>() {
+            if let Ok(rtt) = part
+                .trim_start_matches('<')
+                .trim_end_matches("ms")
+                .parse::<f64>()
+            {
                 rtts.push(rtt);
                 continue;
             }
@@ -377,4 +397,3 @@ fn parse_hop_line(line: &str) -> Option<TracerouteHop> {
         timeout: false,
     })
 }
-

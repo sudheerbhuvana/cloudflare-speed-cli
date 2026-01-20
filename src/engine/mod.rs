@@ -22,10 +22,7 @@ use tokio::sync::mpsc;
 
 /// Check if paused, wait while paused, and return true if cancelled.
 /// Returns true if the caller should break out of its loop.
-pub(crate) async fn wait_if_paused_or_cancelled(
-    paused: &AtomicBool,
-    cancel: &AtomicBool,
-) -> bool {
+pub(crate) async fn wait_if_paused_or_cancelled(paused: &AtomicBool, cancel: &AtomicBool) -> bool {
     while paused.load(Ordering::Relaxed) && !cancel.load(Ordering::Relaxed) {
         tokio::time::sleep(Duration::from_millis(50)).await;
     }
@@ -263,12 +260,8 @@ impl TestEngine {
                     .await
                     .ok();
 
-                match traceroute::run_traceroute(
-                    &hostname,
-                    self.cfg.traceroute_max_hops,
-                    &event_tx,
-                )
-                .await
+                match traceroute::run_traceroute(&hostname, self.cfg.traceroute_max_hops, &event_tx)
+                    .await
                 {
                     Ok(summary) => {
                         event_tx
