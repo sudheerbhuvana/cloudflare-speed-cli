@@ -945,7 +945,7 @@ fn draw(area: Rect, f: &mut ratatui::Frame, state: &UiState) {
     .block(
         Block::default()
             .borders(Borders::ALL)
-            .title("cloudflare-speed-cli"),
+            .title(format!("cloudflare-speed-cli v{}", env!("CARGO_PKG_VERSION"))),
     )
     .highlight_style(Style::default().fg(Color::Yellow));
     f.render_widget(tabs, chunks[0]);

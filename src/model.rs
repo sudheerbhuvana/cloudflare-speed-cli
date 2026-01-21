@@ -165,6 +165,8 @@ pub struct ExperimentalUdpSummary {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RunResult {
     #[serde(default)]
+    pub version: Option<String>,
+    #[serde(default)]
     pub timestamp_utc: String,
     pub base_url: String,
     pub meas_id: String,

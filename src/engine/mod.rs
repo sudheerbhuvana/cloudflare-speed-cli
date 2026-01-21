@@ -371,6 +371,7 @@ impl TestEngine {
         // Don't await the aborted task - just let it be cleaned up
 
         Ok(RunResult {
+            version: Some(env!("CARGO_PKG_VERSION").to_string()),
             timestamp_utc: time::OffsetDateTime::now_utc()
                 .format(&time::format_description::well_known::Rfc3339)
                 .unwrap_or_else(|_| "now".into()),
