@@ -72,6 +72,9 @@ struct UiState {
     history_scroll_offset: usize,
     history_loaded_count: usize,
     initial_history_load_size: usize, // Initial load size based on terminal height
+    // History filtering
+    history_filter: String,         // Current filter text
+    history_filter_editing: bool,   // Whether user is typing in filter input
     ip: Option<String>,
     colo: Option<String>,
     server: Option<String>,
@@ -138,6 +141,8 @@ impl Default for UiState {
             history_scroll_offset: 0,
             history_loaded_count: 0,
             initial_history_load_size: 66, // Default initial load size
+            history_filter: String::new(),
+            history_filter_editing: false,
             ip: None,
             colo: None,
             server: None,
@@ -345,6 +350,34 @@ pub async fn run(args: Cli) -> Result<()> {
                     if k.kind != KeyEventKind::Press {
                         continue;
                     }
+
+                    // Handle filter input mode (when on history tab and editing filter)
+                    if state.tab == 1 && state.history_filter_editing {
+                        match k.code {
+                            KeyCode::Esc => {
+                                // Cancel editing, clear filter
+                                state.history_filter_editing = false;
+                                state.history_filter.clear();
+                                state.history_selected = 0;
+                                state.history_scroll_offset = 0;
+                            }
+                            KeyCode::Enter => {
+                                // Apply filter and exit editing mode
+                                state.history_filter_editing = false;
+                                state.history_selected = 0;
+                                state.history_scroll_offset = 0;
+                            }
+                            KeyCode::Backspace => {
+                                state.history_filter.pop();
+                            }
+                            KeyCode::Char(c) => {
+                                state.history_filter.push(c);
+                            }
+                            _ => {}
+                        }
+                        continue;
+                    }
+
                     match (k.modifiers, k.code) {
                         (_, KeyCode::Char('q')) | (KeyModifiers::CONTROL, KeyCode::Char('c')) => {
                             if let Some(ref ctx) = run_ctx {
@@ -604,6 +637,20 @@ pub async fn run(args: Cli) -> Result<()> {
                                         state.info = "Deleted".into();
                                     }
                                 }
+                            }
+                        }
+                        // Filter controls (only on History tab)
+                        (_, KeyCode::Char('/')) => {
+                            if state.tab == 1 {
+                                state.history_filter_editing = true;
+                            }
+                        }
+                        (_, KeyCode::Esc) => {
+                            if state.tab == 1 && !state.history_filter.is_empty() {
+                                // Clear filter when Escape pressed and filter is active
+                                state.history_filter.clear();
+                                state.history_selected = 0;
+                                state.history_scroll_offset = 0;
                             }
                         }
                         _ => {}
@@ -1948,37 +1995,89 @@ fn copy_to_clipboard(text: &str) -> Result<()> {
 fn draw_history(area: Rect, f: &mut ratatui::Frame, state: &UiState) {
     let mut lines: Vec<Line> = Vec::new();
 
+    // Filter history based on filter text (case-insensitive search in network_name, interface_name, as_org, colo)
+    let filter_lower = state.history_filter.to_lowercase();
+    let filtered_history: Vec<&RunResult> = if state.history_filter.is_empty() {
+        state.history.iter().collect()
+    } else {
+        state
+            .history
+            .iter()
+            .filter(|r| {
+                let matches_field = |opt: &Option<String>| {
+                    opt.as_ref()
+                        .map(|s| s.to_lowercase().contains(&filter_lower))
+                        .unwrap_or(false)
+                };
+                matches_field(&r.network_name)
+                    || matches_field(&r.interface_name)
+                    || matches_field(&r.as_org)
+                    || matches_field(&r.colo)
+                    || matches_field(&r.comments)
+            })
+            .collect()
+    };
+
     // Calculate how many items can fit in the available area
-    // Subtract 2 for header lines
-    let max_items = (area.height as usize).saturating_sub(2);
+    // Subtract 4 for: controls line, filter line (optional), column headers, borders
+    let max_items = (area.height as usize).saturating_sub(4);
 
     // Show total count and current position
-    let total_count = state.history.len();
+    let total_count = filtered_history.len();
     let current_pos = if total_count > 0 {
-        state.history_selected + 1
+        state.history_selected.min(total_count.saturating_sub(1)) + 1
     } else {
         0
     };
 
-    lines.push(Line::from(vec![
+    // Build header line with controls
+    let mut header_spans = vec![
         Span::raw(format!("History ({}/{}", current_pos, total_count)),
-        if total_count > max_items {
-            Span::raw(format!(", showing {} items", max_items))
-        } else {
-            Span::raw("")
-        },
+    ];
+    if !state.history_filter.is_empty() {
+        header_spans.push(Span::styled(
+            format!(" filtered from {}", state.history.len()),
+            Style::default().fg(Color::Yellow),
+        ));
+    }
+    if total_count > max_items {
+        header_spans.push(Span::raw(format!(", showing {}", max_items)));
+    }
+    header_spans.extend(vec![
         Span::raw(") - "),
-        Span::styled("↑/↓/j/k", Style::default().fg(Color::Magenta)),
-        Span::raw(": navigate, "),
+        Span::styled("/", Style::default().fg(Color::Magenta)),
+        Span::raw(": filter, "),
+        Span::styled("↑↓", Style::default().fg(Color::Magenta)),
+        Span::raw(": nav, "),
         Span::styled("r", Style::default().fg(Color::Magenta)),
         Span::raw(": refresh, "),
         Span::styled("d", Style::default().fg(Color::Magenta)),
-        Span::raw(": delete, "),
+        Span::raw(": del, "),
         Span::styled("e", Style::default().fg(Color::Magenta)),
-        Span::raw(": export JSON, "),
+        Span::raw("/"),
         Span::styled("c", Style::default().fg(Color::Magenta)),
-        Span::raw(": export CSV"),
-    ]));
+        Span::raw(": export"),
+    ]);
+    lines.push(Line::from(header_spans));
+
+    // Show filter input or current filter
+    if state.history_filter_editing {
+        lines.push(Line::from(vec![
+            Span::styled("Filter: ", Style::default().fg(Color::Cyan)),
+            Span::styled(&state.history_filter, Style::default().fg(Color::White)),
+            Span::styled("_", Style::default().fg(Color::White)), // cursor
+            Span::styled(
+                "  (Enter to apply, Esc to cancel)",
+                Style::default().fg(Color::Gray),
+            ),
+        ]));
+    } else if !state.history_filter.is_empty() {
+        lines.push(Line::from(vec![
+            Span::styled("Filter: ", Style::default().fg(Color::Cyan)),
+            Span::styled(&state.history_filter, Style::default().fg(Color::Yellow)),
+            Span::styled("  (Esc to clear)", Style::default().fg(Color::Gray)),
+        ]));
+    }
 
     // Show info message if it's an export message (when on history tab)
     if state.tab == 1
@@ -2051,34 +2150,47 @@ fn draw_history(area: Rect, f: &mut ratatui::Frame, state: &UiState) {
         }
     }
 
-    lines.push(Line::from(""));
+    // Add column headers (left-aligned, matching data column widths exactly)
+    lines.push(Line::from(vec![
+        Span::styled("#    ", Style::default().fg(Color::Gray)),               // 5 chars
+        Span::styled("Timestamp                   ", Style::default().fg(Color::Gray)), // 28 chars
+        Span::styled("DL        ", Style::default().fg(Color::Green)),         // 10 chars
+        Span::styled("UL        ", Style::default().fg(Color::Cyan)),          // 10 chars
+        Span::styled("Ping      ", Style::default().fg(Color::Gray)),          // 10 chars
+        Span::styled("Interface    ", Style::default().fg(Color::Blue)),       // 13 chars
+        Span::styled("Network", Style::default().fg(Color::Magenta)),
+    ]));
+
+    // Clamp selection to filtered history bounds
+    let effective_selected = state
+        .history_selected
+        .min(filtered_history.len().saturating_sub(1));
 
     // Apply scroll offset and take only visible items
-    // Auto-adjust scroll to keep selected item visible (this should have been done in event handler, but handle edge cases here)
+    // Auto-adjust scroll to keep selected item visible
     let scroll_offset = {
         let mut offset = state
             .history_scroll_offset
-            .min(state.history.len().saturating_sub(1));
+            .min(filtered_history.len().saturating_sub(1));
         // Ensure selected item is visible
-        if state.history_selected < offset {
-            offset = state.history_selected;
-        } else if state.history_selected >= offset + max_items {
-            offset = state.history_selected.saturating_sub(max_items - 1);
+        if effective_selected < offset {
+            offset = effective_selected;
+        } else if effective_selected >= offset + max_items {
+            offset = effective_selected.saturating_sub(max_items - 1);
         }
         offset
     };
 
-    let history_display: Vec<_> = state
-        .history
+    let history_display: Vec<_> = filtered_history
         .iter()
         .skip(scroll_offset)
         .take(max_items)
         .collect();
 
     for (display_idx, r) in history_display.iter().enumerate() {
-        // Calculate actual history index (accounting for scroll offset)
-        let history_idx = scroll_offset + display_idx;
-        let is_selected = state.tab == 1 && history_idx == state.history_selected;
+        // Calculate actual index in filtered view (accounting for scroll offset)
+        let filtered_idx = scroll_offset + display_idx;
+        let is_selected = state.tab == 1 && filtered_idx == effective_selected;
 
         // Parse and format timestamp to human-readable format in local timezone
         let timestamp_str: String = {
@@ -2174,70 +2286,63 @@ fn draw_history(area: Rect, f: &mut ratatui::Frame, state: &UiState) {
         };
 
         // Line number (1-indexed, newest = 1)
-        let line_num = history_idx + 1;
+        let line_num = filtered_idx + 1;
+
+        // Format interface and network names, truncating if needed
+        let interface = r.interface_name.as_deref().unwrap_or("-");
+        let network = r
+            .network_name
+            .as_deref()
+            .or_else(|| r.interface_name.as_deref())
+            .unwrap_or("-");
 
         lines.push(Line::from(vec![
             Span::styled(
-                format!("{:>2}. ", line_num),
+                format!("{:<4}{}", line_num, if is_selected { ">" } else { " " }),  // 5 chars total
                 if is_selected {
                     style
                 } else {
                     Style::default().fg(Color::Gray)
                 },
             ),
-            Span::styled(if is_selected { "> " } else { "  " }, style),
             Span::styled(
-                timestamp_str,
+                format!("{:<28}", timestamp_str),  // 28 chars
                 if is_selected {
                     style
                 } else {
                     Style::default().fg(Color::Gray)
                 },
             ),
-            Span::raw("  "),
             Span::styled(
-                format!("DL {:>7.0} Mbps", r.download.mbps),
+                format!("{:<10.1}", r.download.mbps),  // 10 chars
                 if is_selected {
                     style
                 } else {
                     Style::default().fg(Color::Green)
                 },
             ),
-            Span::raw("  "),
             Span::styled(
-                format!("UL {:>7.0} Mbps", r.upload.mbps),
+                format!("{:<10.1}", r.upload.mbps),  // 10 chars
                 if is_selected {
                     style
                 } else {
                     Style::default().fg(Color::Cyan)
                 },
             ),
-            Span::raw("  "),
             Span::styled(
-                format!(
-                    "Idle med {:>6.0} ms",
-                    r.idle_latency.median_ms.unwrap_or(f64::NAN)
-                ),
+                format!("{:<10.1}", r.idle_latency.median_ms.unwrap_or(f64::NAN)),  // 10 chars
                 if is_selected { style } else { Style::default() },
             ),
-            Span::raw("  "),
             Span::styled(
-                format!("{}", r.interface_name.as_deref().unwrap_or("-")),
+                format!("{:<13}", interface),  // 13 chars
                 if is_selected {
                     style
                 } else {
                     Style::default().fg(Color::Blue)
                 },
             ),
-            Span::raw("  "),
             Span::styled(
-                format!(
-                    "{}",
-                    r.network_name
-                        .as_deref()
-                        .or_else(|| r.interface_name.as_deref())
-                        .unwrap_or("-")
-                ),
+                network.to_string(),
                 if is_selected {
                     style
                 } else {
@@ -2249,6 +2354,11 @@ fn draw_history(area: Rect, f: &mut ratatui::Frame, state: &UiState) {
 
     if state.history.is_empty() {
         lines.push(Line::from("No history available."));
+    } else if filtered_history.is_empty() && !state.history_filter.is_empty() {
+        lines.push(Line::from(vec![
+            Span::styled("No results match filter: ", Style::default().fg(Color::Yellow)),
+            Span::styled(&state.history_filter, Style::default().fg(Color::White)),
+        ]));
     }
 
     // Show exported path if available
@@ -2353,5 +2463,3 @@ fn draw_history(area: Rect, f: &mut ratatui::Frame, state: &UiState) {
 fn max_y(points: &[(f64, f64)]) -> f64 {
     points.iter().map(|(_, y)| *y).fold(0.0, |a, b| a.max(b))
 }
-
-// Compute latency metrics (mean, median, 25th percentile, 75th percentile) from samples
