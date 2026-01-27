@@ -7,6 +7,7 @@ A CLI tool that displays network speed test results from Cloudflare's speed test
 
 ![screenshot](./images/screenshot-dashboard.png)
 ![screenshot](./images/screenshot-history.png)
+![screenshot](./images/screenshot-charts.png)
 
 ## Features
 
