@@ -101,7 +101,7 @@ pub async fn run(args: Cli) -> Result<()> {
     let res = loop {
         tokio::select! {
             _ = tick.tick() => {
-                terminal.draw(|f| draw(f.area(), f, &state)).ok();
+                terminal.draw(|f| draw(f.area(), f, &mut state)).ok();
             }
             Some(status) = update_rx.recv() => {
                 state.update_status = Some(status);
@@ -367,37 +367,22 @@ pub async fn run(args: Cli) -> Result<()> {
                         // History navigation and deletion (only when on History tab)
                         (_, KeyCode::Up) | (_, KeyCode::Char('k')) => {
                             if state.tab == 1 && !state.history.is_empty() {
-                                // Up/k goes to newer items (lower index, towards 0)
                                 if state.history_selected > 0 {
                                     state.history_selected -= 1;
-                                    // Auto-scroll: if selected item is above visible area, scroll up
-                                    if state.history_selected < state.history_scroll_offset {
-                                        state.history_scroll_offset = state.history_selected;
-                                    }
                                 }
                             }
                         }
                         (_, KeyCode::Down) | (_, KeyCode::Char('j')) => {
                             if state.tab == 1 && !state.history.is_empty() {
-                                // Down/j goes to older items (higher index in array)
-                                // Allow navigation through all items; display will show what fits
                                 if state.history_selected < state.history.len().saturating_sub(1) {
                                     state.history_selected += 1;
-                                    // Auto-scroll: keep selected item visible
-                                    // Use a reasonable estimate for max_items (will be recalculated in draw)
-                                    let estimated_max_items = 30; // reasonable default
-                                    if state.history_selected >= state.history_scroll_offset + estimated_max_items {
-                                        state.history_scroll_offset = state.history_selected.saturating_sub(estimated_max_items - 1);
-                                    }
 
-                                    // Lazy load: if we're near the end of loaded items, load more
+                                    // Lazy load: if near end of loaded items, load more
                                     let load_threshold = state.history_loaded_count.saturating_sub(10);
                                     if state.history_selected >= load_threshold && state.history_loaded_count == state.history.len() {
-                                        // Load more items (another batch of the same size)
                                         let current_count = state.history.len();
-                                        let load_more = current_count.max(20); // Load at least as many as we have, or 20
+                                        let load_more = current_count.max(20);
                                         if let Ok(more_history) = crate::storage::load_recent(load_more) {
-                                            // Only add items we don't already have
                                             let existing_ids: std::collections::HashSet<_> = state.history
                                                 .iter()
                                                 .map(|r| &r.meas_id)
@@ -411,6 +396,41 @@ pub async fn run(args: Cli) -> Result<()> {
                                                 state.history_loaded_count = state.history.len();
                                                 update_available_networks(&mut state);
                                             }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        (_, KeyCode::PageUp) => {
+                            if state.tab == 1 && !state.history.is_empty() {
+                                let page_size = 20;
+                                state.history_selected = state.history_selected.saturating_sub(page_size);
+                            }
+                        }
+                        (_, KeyCode::PageDown) => {
+                            if state.tab == 1 && !state.history.is_empty() {
+                                let page_size = 20;
+                                let max_idx = state.history.len().saturating_sub(1);
+                                state.history_selected = (state.history_selected + page_size).min(max_idx);
+
+                                // Lazy load if near the end
+                                let load_threshold = state.history_loaded_count.saturating_sub(10);
+                                if state.history_selected >= load_threshold && state.history_loaded_count == state.history.len() {
+                                    let current_count = state.history.len();
+                                    let load_more = current_count.max(20);
+                                    if let Ok(more_history) = crate::storage::load_recent(load_more) {
+                                        let existing_ids: std::collections::HashSet<_> = state.history
+                                            .iter()
+                                            .map(|r| &r.meas_id)
+                                            .collect();
+                                        let new_items: Vec<_> = more_history
+                                            .into_iter()
+                                            .filter(|r| !existing_ids.contains(&r.meas_id))
+                                            .collect();
+                                        if !new_items.is_empty() {
+                                            state.history.extend(new_items);
+                                            state.history_loaded_count = state.history.len();
+                                            update_available_networks(&mut state);
                                         }
                                     }
                                 }
@@ -876,7 +896,7 @@ fn apply_event(state: &mut UiState, ev: TestEvent) {
     }
 }
 
-fn draw(area: Rect, f: &mut ratatui::Frame, state: &UiState) {
+fn draw(area: Rect, f: &mut ratatui::Frame, state: &mut UiState) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([Constraint::Length(3), Constraint::Min(0)].as_ref())
@@ -908,9 +928,9 @@ fn draw(area: Rect, f: &mut ratatui::Frame, state: &UiState) {
         0 => draw_dashboard(chunks[1], f, state),
         1 => {
             if state.history_detail_view {
-                draw_history_detail(chunks[1], f, state)
+                draw_history_detail(chunks[1], f, &mut *state)
             } else {
-                show_history(chunks[1], f, state)
+                show_history(chunks[1], f, &mut *state)
             }
         }
         2 => draw_charts(chunks[1], f, state),

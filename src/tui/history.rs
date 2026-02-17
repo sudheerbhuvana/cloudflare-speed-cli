@@ -1,16 +1,16 @@
 use crate::model::RunResult;
 use ratatui::{
-    layout::Rect,
+    layout::{Margin, Rect},
     style::Color,
     style::Style,
     text::{Line, Span},
-    widgets::{Block, Borders, Paragraph},
+    widgets::{Block, Borders, Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarState},
     Frame,
 };
 
 use super::state::UiState;
 
-pub fn show_history(area: Rect, f: &mut Frame, state: &UiState) {
+pub fn show_history(area: Rect, f: &mut Frame, state: &mut UiState) {
     let mut lines: Vec<Line> = Vec::new();
 
     // Filter history based on filter text (case-insensitive search in network_name, interface_name, as_org, colo)
@@ -66,6 +66,8 @@ pub fn show_history(area: Rect, f: &mut Frame, state: &UiState) {
         Span::styled("/", Style::default().fg(Color::Magenta)),
         Span::raw(": filter, "),
         Span::styled("↑↓", Style::default().fg(Color::Magenta)),
+        Span::raw("/"),
+        Span::styled("PgUp/Dn", Style::default().fg(Color::Magenta)),
         Span::raw(": nav, "),
         Span::styled("r", Style::default().fg(Color::Magenta)),
         Span::raw(": refresh, "),
@@ -188,20 +190,18 @@ pub fn show_history(area: Rect, f: &mut Frame, state: &UiState) {
         .history_selected
         .min(filtered_history.len().saturating_sub(1));
 
-    // Apply scroll offset and take only visible items
     // Auto-adjust scroll to keep selected item visible
-    let scroll_offset = {
-        let mut offset = state
-            .history_scroll_offset
-            .min(filtered_history.len().saturating_sub(1));
-        // Ensure selected item is visible
-        if effective_selected < offset {
-            offset = effective_selected;
-        } else if effective_selected >= offset + max_items {
-            offset = effective_selected.saturating_sub(max_items - 1);
-        }
-        offset
-    };
+    // Only scroll when selection goes off-screen (not before)
+    let mut offset = state
+        .history_scroll_offset
+        .min(filtered_history.len().saturating_sub(1));
+    if effective_selected < offset {
+        offset = effective_selected;
+    } else if max_items > 0 && effective_selected >= offset + max_items {
+        offset = effective_selected - max_items + 1;
+    }
+    state.history_scroll_offset = offset;
+    let scroll_offset = offset;
 
     let history_display: Vec<_> = filtered_history
         .iter()
@@ -496,9 +496,25 @@ pub fn show_history(area: Rect, f: &mut Frame, state: &UiState) {
 
     let p = Paragraph::new(lines).block(Block::default().borders(Borders::ALL).title("History"));
     f.render_widget(p, area);
+
+    // Render scrollbar on the right edge if there are more items than visible
+    if total_count > max_items {
+        let mut scrollbar_state = ScrollbarState::new(total_count.saturating_sub(max_items))
+            .position(scroll_offset);
+        f.render_stateful_widget(
+            Scrollbar::new(ScrollbarOrientation::VerticalRight)
+                .begin_symbol(Some("↑"))
+                .end_symbol(Some("↓")),
+            area.inner(Margin {
+                vertical: 1,
+                horizontal: 0,
+            }),
+            &mut scrollbar_state,
+        );
+    }
 }
 
-pub fn draw_history_detail(area: Rect, f: &mut Frame, state: &UiState) {
+pub fn draw_history_detail(area: Rect, f: &mut Frame, state: &mut UiState) {
     let mut lines: Vec<Line> = Vec::new();
 
     // Get the filtered history to find the correct selected item
@@ -528,6 +544,8 @@ pub fn draw_history_detail(area: Rect, f: &mut Frame, state: &UiState) {
         .history_selected
         .min(filtered_history.len().saturating_sub(1));
 
+    let mut detail_scroll_info: Option<(usize, usize, usize)> = None;
+
     if let Some(result) = filtered_history.get(effective_selected) {
         // Header with navigation help
         lines.push(Line::from(vec![
@@ -549,12 +567,14 @@ pub fn draw_history_detail(area: Rect, f: &mut Frame, state: &UiState) {
         let json_lines: Vec<&str> = json_str.lines().collect();
         let total_lines = json_lines.len();
 
-        // Calculate available height for JSON content (subtract header lines and borders)
-        let available_height = (area.height as usize).saturating_sub(5);
+        // Calculate available height for JSON content
+        // Subtract: 2 borders + 4 header lines (title, blank, network/timestamp, blank)
+        let available_height = (area.height as usize).saturating_sub(6);
 
-        // Clamp scroll offset locally (don't mutate state in draw)
+        // Clamp scroll offset and write back to state so it can't drift
         let max_scroll = total_lines.saturating_sub(available_height);
-        let scroll_offset = state.history_detail_scroll.min(max_scroll);
+        state.history_detail_scroll = state.history_detail_scroll.min(max_scroll);
+        let scroll_offset = state.history_detail_scroll;
 
         // Show scroll position
         let scroll_info = if total_lines > available_height {
@@ -607,6 +627,7 @@ pub fn draw_history_detail(area: Rect, f: &mut Frame, state: &UiState) {
             };
             lines.push(styled_line);
         }
+        detail_scroll_info = Some((total_lines, available_height, scroll_offset));
     } else {
         lines.push(Line::from("No item selected."));
     }
@@ -617,4 +638,23 @@ pub fn draw_history_detail(area: Rect, f: &mut Frame, state: &UiState) {
             .title("History - JSON Detail"),
     );
     f.render_widget(p, area);
+
+    // Render scrollbar after paragraph so it draws on top
+    if let Some((total_lines, available_height, scroll_offset)) = detail_scroll_info {
+        if total_lines > available_height {
+            let max_scroll = total_lines.saturating_sub(available_height);
+            let mut scrollbar_state = ScrollbarState::new(max_scroll)
+                .position(scroll_offset);
+            f.render_stateful_widget(
+                Scrollbar::new(ScrollbarOrientation::VerticalRight)
+                    .begin_symbol(Some("↑"))
+                    .end_symbol(Some("↓")),
+                area.inner(Margin {
+                    vertical: 1,
+                    horizontal: 0,
+                }),
+                &mut scrollbar_state,
+            );
+        }
+    }
 }

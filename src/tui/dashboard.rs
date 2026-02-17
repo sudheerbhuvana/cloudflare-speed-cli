@@ -493,7 +493,7 @@ pub fn draw_dashboard(area: Rect, f: &mut Frame, state: &UiState) {
         ]),
     ]);
 
-    // Add diagnostic results if available
+    // Diagnostic results at the end, before the source link
     let has_diagnostics = state.dns_summary.is_some()
         || state.tls_summary.is_some()
         || state.ip_comparison.is_some()
