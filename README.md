@@ -5,9 +5,8 @@
 
 A CLI tool that displays network speed test results from Cloudflare's speed test service in a TUI interface.
 
-_⚠️ If you're seeing zero download speeds, a hotfix has been implemented in v0.6.2. If you are on a version before this, upgrade by following 
-the [installation instructions](#installation) below._  
-
+> [!WARNING]
+> If you're seeing zero download speeds, a hotfix has been implemented in v0.6.2. If you are on a version before this, upgrade by following the [installation instructions](#installation) below.
 
 ![screenshot](./images/screenshot-dashboard.png)
 ![screenshot](./images/screenshot-history.png)
@@ -53,7 +52,7 @@ curl -fsSL https://raw.githubusercontent.com/kavehtehrani/cloudflare-speed-cli/m
 
 As other people have kindly contributed, I've merged their pull requests for the distro they have
 contributed toward. My main OS is Ubuntu and Fedora, and the main distribution mechanism for this package is via
-['cargo-dist'](https://github.com/axodotdev/cargo-dist) which I have found helpful in generating the compatible binaries 
+['cargo-dist'](https://github.com/axodotdev/cargo-dist) which I have found helpful in generating the compatible binaries
 via github actions. If you would like to contribute for other distros, please open an issue or send in a pull request.
 
 #### Arch Linux
@@ -68,7 +67,7 @@ pacman -S cloudflare-speed-cli
 
 ```bash
  nix run github:kavehtehrani/cloudflare-speed-cli
- ```
+```
 
 ### Binaries
 
